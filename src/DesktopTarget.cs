@@ -17,7 +17,7 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
 {
     private readonly string appId;
     private IntPtr window;
-    internal Action WindowAvailable;
+    internal Action<IntPtr> WindowAvailable;
     internal WindowsDesktopTarget(string appId) { this.appId = appId; }
     internal bool IsForeground { get { return GetForegroundWindow() == window && window != IntPtr.Zero; } }
 
@@ -41,7 +41,7 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
         DateTime composerSince = DateTime.MinValue;
         IntPtr previousWindow = IntPtr.Zero;
         Task<bool> conversationProbe = null;
-        bool notified = false;
+        IntPtr notifiedWindow = IntPtr.Zero;
         while (DateTime.UtcNow < deadline)
         {
             cancellation.ThrowIfCancellationRequested();
@@ -61,10 +61,10 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
                 var bounds = Rectangle.FromLTRB(rectangle.Left, rectangle.Top, rectangle.Right, rectangle.Bottom);
                 if (bounds.Width >= 400 && bounds.Height >= 300)
                 {
-                    if (!notified)
+                    if (notifiedWindow != window)
                     {
-                        notified = true;
-                        if (WindowAvailable != null) WindowAvailable();
+                        notifiedWindow = window;
+                        if (WindowAvailable != null) WindowAvailable(window);
                     }
                     if (bounds != lastBounds) { lastBounds = bounds; stableSince = DateTime.UtcNow; }
                     // A responsive shell alone is insufficient: wait for the composer too.

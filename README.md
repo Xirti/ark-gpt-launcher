@@ -10,11 +10,12 @@
 
 Codex 在动画打开时预加载；“确认登录”读取本机 Codex CLI 既有认证资料，“确认账户”后等待会话输入框就绪，再播放欢迎语并淡出退出。账户查询最多约 8 秒，不执行登录、登出或令牌刷新。
 
-顶部空白处可拖动，贴屏幕顶边松手最大化；右上角提供最小化、最大化／还原、关闭。窗口不置顶，关闭启动器保留 Codex。
+顶部空白处可拖动，贴屏幕顶边松手最大化；右上角提供最小化、最大化／还原、关闭。正式启动窗口不单独登记任务栏按钮，而是归属于 Codex：最小化时一起收起，恢复 Codex 时带回启动窗口。窗口不全局置顶，关闭启动器保留 Codex。
+Codex 主窗口出现前，最小化键暂不可用；预览模式有独立任务栏按钮，因为它不启动 Codex。
 
 ## 任务栏与设置
 
-运行 `CodexLauncher.exe --create-shortcut` 可在当前目录生成 `Codex（动画启动）.lnk`。它和启动器使用原 Codex 的 AppUserModelID 申请共用任务栏分组。若要从任务栏经过动画，请自行取消原固定项并固定新快捷方式；工具不会自动操作任务栏。
+运行 `CodexLauncher.exe --create-shortcut` 可在当前目录生成 `Codex（动画启动）.lnk`，沿用原 Codex 的 AppUserModelID。若要从任务栏经过动画，请自行取消原固定项并固定新快捷方式；工具不会自动操作任务栏。正式动画窗口通过原生 owner 关系跟随 Codex，不依赖 Windows 把两个独立任务栏窗口强行合并。
 
 Windows 可能将商店应用固定项解析回原入口，实际分组及固定后启动顺序需要自行确认。Codex 已运行时，点击分组通常切换现有窗口。就绪检测依赖 UI Automation，90 秒未识别输入框会提示重试／退出；CLI 返回的账户不保证与桌面当前账户相同。
 
@@ -36,12 +37,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\src\构建.ps1
 生成核心便携包和 SHA256 校验文件：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\src\发布打包.ps1 -Version 1.0.0
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\发布打包.ps1 -Version 1.0.1
 ```
 
 产物位于 `dist/`。Release 不包含源码、录音备份、测试、历史记录、缓存或本机快捷方式。
 
-`CodexLauncher.exe --check` 只检查 WebView2 与应用标识并生成 `check-result.txt`，不启动动画或 Codex。本次发布完成构建、包内文件和音频解码检查；未重新进行 GUI、任务栏固定或真正冷启动测试。
+`CodexLauncher.exe --check` 只检查 WebView2 与应用标识并生成 `check-result.txt`，不启动动画或 Codex。本次发布完成构建、包内文件、音频解码及隔离桌面的窗口归属／最小化／恢复／关闭回归；没有切换用户桌面或操作正在使用的 Codex，实际任务栏固定与真正冷启动仍需自行确认。
 
 ## 清理与回退
 

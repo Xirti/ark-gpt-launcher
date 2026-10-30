@@ -90,11 +90,13 @@ internal sealed class LauncherWindow : Form
     private bool desktopRequested;
     private Exception desktopFailure;
     private bool userMoved;
+    private IntPtr desktopOwner;
 
     internal LauncherWindow(string root, string appId, bool preview)
         : this(root, preview, new WindowsDesktopTarget(appId), new CodexAccountReader())
     {
-        ((WindowsDesktopTarget)desktopTarget).WindowAvailable = delegate {
+        ((WindowsDesktopTarget)desktopTarget).WindowAvailable = delegate(IntPtr owner) {
+            AttachDesktopOwner(owner);
             if (WindowState != FormWindowState.Minimized && IsStartupForeground) { BringToFront(); Activate(); }
         };
     }
@@ -111,8 +113,8 @@ internal sealed class LauncherWindow : Form
         Text = preview ? "Codex 启动动画 · 仅预览" : "Codex 启动动画";
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.None;
-        // The shared AppUserModelID groups this window with Codex and permits restore after minimizing.
-        ShowInTaskbar = true;
+        // Only Codex gets a taskbar button. Preview has no owner and needs its own entry.
+        ShowInTaskbar = preview;
         ShowIcon = false;
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         StartPosition = FormStartPosition.Manual;
@@ -212,7 +214,14 @@ internal sealed class LauncherWindow : Form
             if (message == "minimize-launcher")
             {
                 userMoved = true;
-                WindowState = FormWindowState.Minimized;
+                if (preview) WindowState = FormWindowState.Minimized;
+                else if (desktopOwner != IntPtr.Zero && IsWindow(desktopOwner))
+                {
+                    // Owned overlays hide/restore with the owner. Do not separately
+                    // minimize this overlay, which has no taskbar restore entry.
+                    if (!ShowWindowAsync(desktopOwner, 6))
+                        throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+                }
                 return;
             }
             if (message == "toggle-maximize-launcher")
@@ -319,6 +328,7 @@ internal sealed class LauncherWindow : Form
         if (!browserReady || closing) return;
         web.CoreWebView2.PostWebMessageAsJson(new JavaScriptSerializer().Serialize(new {
             type = "window-state", maximized = WindowState == FormWindowState.Maximized,
+            canMinimize = preview || (desktopOwner != IntPtr.Zero && IsWindow(desktopOwner)),
             scale = 1.0 / web.ZoomFactor
         }));
     }
@@ -381,11 +391,30 @@ internal sealed class LauncherWindow : Form
     {
         get
         {
-            if (WindowState == FormWindowState.Minimized) return false;
+            if (WindowState == FormWindowState.Minimized ||
+                (desktopOwner != IntPtr.Zero && IsIconic(desktopOwner))) return false;
             if (GetForegroundWindow() == Handle) return true;
             var target = desktopTarget as WindowsDesktopTarget;
             return target != null && target.IsForeground;
         }
+    }
+
+    internal void AttachDesktopOwner(IntPtr owner)
+    {
+        // Change only our window's owner, never the Codex window or package.
+        SetLastError(0);
+        IntPtr previous = SetWindowLongPtr(Handle, -8, owner); // GWLP_HWNDPARENT
+        int error = Marshal.GetLastWin32Error();
+        if (previous == IntPtr.Zero && error != 0)
+            throw new System.ComponentModel.Win32Exception(error);
+        desktopOwner = owner;
+        PublishWindowState();
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        if (desktopOwner != IntPtr.Zero) AttachDesktopOwner(desktopOwner);
     }
 
     protected override void WndProc(ref Message message)
@@ -408,6 +437,12 @@ internal sealed class LauncherWindow : Form
     }
 
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool ShowWindowAsync(IntPtr window, int command);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr window, int index, IntPtr value);
+    [DllImport("kernel32.dll")] private static extern void SetLastError(uint error);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(
         IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
 

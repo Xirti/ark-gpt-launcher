@@ -1108,6 +1108,7 @@
 #window-controls {position:fixed;right:0;top:0;z-index:2147483100;display:flex;height:calc(40px * var(--window-control-scale));app-region:no-drag;letter-spacing:normal}
 #window-controls button {display:grid;place-items:center;width:calc(46px * var(--window-control-scale));padding:0;border:0;background:transparent;color:#7a7873;cursor:pointer;app-region:no-drag}
 #window-controls button:hover {background:#7772;color:#151515}
+#window-controls button:disabled {opacity:.35;cursor:default;background:transparent}
 #window-controls button:focus-visible {outline:2px solid #ff7500;outline-offset:-3px}
 #window-controls #close-launcher:hover {background:#c42b1c;color:white}
 #window-controls svg {width:calc(12px * var(--window-control-scale));height:calc(12px * var(--window-control-scale));fill:none;stroke:currentColor;stroke-width:1;pointer-events:none}

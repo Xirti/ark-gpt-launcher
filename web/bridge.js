@@ -31,6 +31,9 @@
     if (event.data === 'desktop-ready') { resolveReady(); return; }
     if (event.data.type === 'window-state') {
       document.documentElement.style.setProperty('--window-control-scale', event.data.scale);
+      var minimize = document.getElementById('minimize-launcher');
+      minimize.disabled = !event.data.canMinimize;
+      minimize.title = event.data.canMinimize ? '最小化' : '等待 Codex 窗口出现后可最小化';
       var button = document.getElementById('maximize-launcher');
       button.title = event.data.maximized ? '还原' : '最大化';
       button.setAttribute('aria-label', button.title);
