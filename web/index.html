@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Codex 启动动画</title>
+<link rel="stylesheet" href="dsh-startup/splash.css">
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#e5e3df;color:#0a0a0a}body{display:grid;place-items:center;font:700 32px Bahnschrift,Consolas,sans-serif;letter-spacing:.2em}</style>
+<script src="bridge.js"></script>
+<script src="config.js"></script>
+<script defer src="dsh-startup/splash.js"></script>
+</head>
+<body>
+<div>CODEX</div>
+<div id="dsh-startup-root" class="dsu-root dsu-boot"></div>
+<div id="window-drag" aria-hidden="true"></div>
+<div id="window-controls" role="group" aria-label="窗口控制">
+<button id="minimize-launcher" type="button" title="最小化" aria-label="最小化"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6.5h10"/></svg></button>
+<button id="maximize-launcher" type="button" title="最大化" aria-label="最大化"><svg viewBox="0 0 12 12" aria-hidden="true"><path class="maximize-icon" d="M1.5 1.5h9v9h-9z"/><path class="restore-icon" d="M3.5 1.5h7v7M1.5 3.5h7v7h-7z"/></svg></button>
+<button id="close-launcher" type="button" title="关闭启动器（不关闭 Codex）" aria-label="关闭启动器"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m1.5 1.5 9 9m0-9-9 9"/></svg></button>
+</div>
+</body>
+</html>

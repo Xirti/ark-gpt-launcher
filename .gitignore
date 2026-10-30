@@ -1,0 +1,16 @@
+/*
+!/.gitignore
+!/README.md
+!/LICENSE
+!/app-id.txt
+!/预览.cmd
+!/*.dll
+!/src/
+!/web/
+!/licenses/
+
+**/bin/
+**/obj/
+**/.env*
+**/*.log
+/web/dsh-startup/openai-original.svg
