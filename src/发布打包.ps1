@@ -1,4 +1,4 @@
-﻿param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '1.0.1')
+﻿param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '1.0.2')
 
 $ErrorActionPreference = 'Stop'
 $project = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
@@ -14,7 +14,7 @@ New-Item -ItemType Directory -Path $package -Force | Out-Null
 
 try {
     # Explicit runtime allowlist; never copy the working directory as a whole.
-    foreach ($name in @('CodexLauncher.exe', 'app-id.txt', '预览.cmd',
+    foreach ($name in @('CodexLauncher.exe', 'app-id.txt', 'launcher-settings.json', '预览.cmd',
         'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll',
         'WebView2Loader.dll', 'README.md', 'LICENSE', 'licenses')) {
         Copy-Item -LiteralPath (Join-Path $project $name) -Destination $package -Recurse

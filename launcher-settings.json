@@ -1,0 +1,5 @@
+{
+  "desktopWaitSeconds": 300,
+  "accountWaitSeconds": 20,
+  "fadeMilliseconds": 1200
+}

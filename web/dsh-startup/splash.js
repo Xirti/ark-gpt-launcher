@@ -646,8 +646,8 @@
   ui.brand3s.textContent = C.brand3b
   ui.footText.textContent = C.footer
   ui.w2.textContent = C.welcomeBox
-  ui.w4.textContent = '欢迎 ' + C.identity + ' 访问'
-  ui.idline.textContent = '· ID CONFIRMED : ' + C.identityId
+  ui.w4.textContent = '欢迎访问'
+  ui.idline.textContent = '· ACCOUNT : ----'
 
   ;(function blackStage() {
     var inner = ui.blackInner
@@ -1498,9 +1498,11 @@
 
   function setAccount(info) {
     accountInfo = info
+    ui.w4.textContent = '欢迎访问'
+    ui.idline.textContent = '· ACCOUNT : ----'
     if (info.status === 'ready') {
-      ui.w4.textContent = '欢迎 ' + (info.emailMasked || info.authLabel) + ' 访问'
-      ui.idline.textContent = '· ' + info.authLabel.toUpperCase() + ' : ' + info.planLabel.toUpperCase()
+      if (info.emailMasked) ui.w4.textContent = '欢迎 ' + info.emailMasked + ' 访问'
+      ui.idline.textContent = '· ' + (info.authLabel || '----').toUpperCase() + ' : ' + (info.planLabel || '----').toUpperCase()
     }
     if (!ui.card.hidden) renderIdentityCard()
   }
@@ -1509,20 +1511,20 @@
     ui.card.innerHTML = ''
     ui.card.style.position = 'relative'
     var rows = [
-      ['身份名称', C.identity, true],
-      ['身份编号', C.identityId, false],
-      ['权限等级', C.accessLevel, false]
+      ['登录账户', '----', true],
+      ['认证方式', '----', false],
+      ['账户套餐', '----', false]
     ]
     var note = ''
     if (accountInfo && accountInfo.status === 'ready') {
       rows = [
-        ['登录账户', accountInfo.emailMasked || accountInfo.authLabel, true],
-        ['认证方式', accountInfo.authLabel, false],
-        ['账户套餐', accountInfo.planLabel, false]
+        ['登录账户', accountInfo.emailMasked || '----', true],
+        ['认证方式', accountInfo.authLabel || '----', false],
+        ['账户套餐', accountInfo.planLabel || '----', false]
       ]
       note = '来源：Codex 认证账户'
-    } else if (accountInfo && accountInfo.status !== 'manual') {
-      note = accountInfo.reason + ' · 保留手动身份'
+    } else if (accountInfo) {
+      note = (accountInfo.reason || '未读取到账户资料') + ' · 可继续打开 Codex'
     } else if (!accountInfo && window.__CODEX_WAIT_ACCOUNT__) {
       rows = [['登录账户', '读取中…', true], ['认证方式', '—', false], ['账户套餐', '—', false]]
       note = '正在读取 Codex 账户资料'
@@ -1563,7 +1565,7 @@
     setSlats(6)
     setProgress(1)
     /* 底部日志和终幕里的「欢迎 xxx 访问」区分开，避免同一句出现两遍 */
-    setSubtitle('身份验证完成，会话已建立', 'IDENTITY VERIFIED · SESSION ESTABLISHED')
+    setSubtitle('Codex 已准备就绪', 'CONVERSATION READY')
     audio.chime()
     /* 终幕欢迎语：自制落幕词素材 line-6（3.73 秒），在欢迎文案亮起的同一刻开念。
        素材缺失 / voiceSource=tts / voice 关闭时静音（调用时 en、zh 都传 null，不会念出合成腔）。 */

@@ -8,7 +8,7 @@
 2. 确保已安装 Codex 桌面应用、.NET Framework 4.8 和 Microsoft Edge WebView2 Runtime。
 3. 双击 `CodexLauncher.exe`。`预览.cmd` 只预览，不启动 Codex 桌面。
 
-Codex 在动画打开时预加载；“确认登录”读取本机 Codex CLI 既有认证资料，“确认账户”后等待会话输入框就绪，再播放欢迎语并淡出退出。账户查询最多约 8 秒，不执行登录、登出或令牌刷新。
+Codex 在动画打开时预加载；“确认登录”读取本机 Codex CLI 既有认证资料，默认最多约 20 秒，不执行登录、登出或令牌刷新。读取失败、未登录或没有返回的字段统一显示 `----`，不会编造姓名、编号或权限等级。“确认账户”后开始计算默认 5 分钟的会话就绪等待，确认前停留不消耗这段时间。就绪后播放欢迎语，以约 1.2 秒淡出，最后交接焦点并退出。
 
 顶部空白处可拖动，贴屏幕顶边松手最大化；右上角提供最小化、最大化／还原、关闭。正式启动窗口不单独登记任务栏按钮，而是归属于 Codex：最小化时一起收起，恢复 Codex 时带回启动窗口。窗口不全局置顶，关闭启动器保留 Codex。
 Codex 主窗口出现前，最小化键暂不可用；预览模式有独立任务栏按钮，因为它不启动 Codex。
@@ -17,9 +17,10 @@ Codex 主窗口出现前，最小化键暂不可用；预览模式有独立任�
 
 运行 `CodexLauncher.exe --create-shortcut` 可在当前目录生成 `Codex（动画启动）.lnk`，沿用原 Codex 的 AppUserModelID。若要从任务栏经过动画，请自行取消原固定项并固定新快捷方式；工具不会自动操作任务栏。正式动画窗口通过原生 owner 关系跟随 Codex，不依赖 Windows 把两个独立任务栏窗口强行合并。
 
-Windows 可能将商店应用固定项解析回原入口，实际分组及固定后启动顺序需要自行确认。Codex 已运行时，点击分组通常切换现有窗口。就绪检测依赖 UI Automation，90 秒未识别输入框会提示重试／退出；CLI 返回的账户不保证与桌面当前账户相同。
+Windows 可能将商店应用固定项解析回原入口，实际分组及固定后启动顺序需要自行确认。Codex 已运行时，点击分组通常切换现有窗口。就绪检测依赖 UI Automation，确认后超过配置时限仍未识别输入框会提示重试／退出，重试会重新计时；CLI 返回的账户不保证与桌面当前账户相同。
 
 - 动画配置：`web/config.js`。
+- 等待与退场：`launcher-settings.json`，修改后重开即可。`desktopWaitSeconds` 默认 300（范围 30–3600 秒），`accountWaitSeconds` 默认 20（范围 5–120 秒），`fadeMilliseconds` 默认 1200（范围 300–3000 毫秒）。
 - 欢迎语音：`web/dsh-startup/asset/line-6.mp3`，当前为机械增强版。替换时使用真正的 MP3，动画会等待音频播放结束。
 - 程序图标：`web/dsh-startup/asset/launcher.ico`，替换后重新构建。
 - Codex 应用标识：`app-id.txt`，默认 `OpenAI.Codex_2p2nqsd0c76g0!App`。
@@ -37,16 +38,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\src\构建.ps1
 生成核心便携包和 SHA256 校验文件：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\src\发布打包.ps1 -Version 1.0.1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\发布打包.ps1 -Version 1.0.2
 ```
 
 产物位于 `dist/`。Release 不包含源码、录音备份、测试、历史记录、缓存或本机快捷方式。
 
-`CodexLauncher.exe --check` 只检查 WebView2 与应用标识并生成 `check-result.txt`，不启动动画或 Codex。本次发布完成构建、包内文件、音频解码及隔离桌面的窗口归属／最小化／恢复／关闭回归；没有切换用户桌面或操作正在使用的 Codex，实际任务栏固定与真正冷启动仍需自行确认。
+`CodexLauncher.exe --check` 检查配置、WebView2 与应用标识并生成 `check-result.txt`，不启动动画或 Codex。本次覆盖账户空值、超时计时及重试、原生透明度与焦点顺序，以及既有窗口归属回归。透明度测试使用隔离桌面中的合成画面与模拟前台条件；没有切换用户桌面或操作正在使用的 Codex，真实冷启动闪现和显示器上的最终观感仍需自行确认。
 
 ## 清理与回退
 
 工具不添加服务、自启、计划任务、PATH、自动更新或本地 HTTP 端口，不修改 Codex 安装包。账户查询结果不保存为文件，短时查询进程结束后退出。
+预加载期间临时监听窗口创建、显示和位置变化，以提前建立覆盖关系，结束、超时或取消时解除；仅在本进程接收事件，不向 Codex 注入代码，不全局置顶。
 
 关闭启动器后可删除 `data/`，下次运行会重建 WebView2 本地运行数据。卸载时先取消自行添加的任务栏固定项，再删除解压目录；不要删除 Codex 本体、`.codex`、认证资料或聊天文件。升级前保留旧便携包，需要回退时退出新版并重新解压旧版。
 

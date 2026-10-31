@@ -30,7 +30,7 @@ internal sealed class CodexAccountReader : IAccountReader
     private readonly object processGate = new object();
     private Process activeProcess;
     private bool disposed;
-    internal CodexAccountReader(string executable = null, int timeoutMs = 8000)
+    internal CodexAccountReader(string executable = null, int timeoutMs = 20000)
     { this.executable = executable; this.timeoutMs = timeoutMs; }
 
     public async Task<AccountInfo> ReadAsync(CancellationToken cancellation)
@@ -172,7 +172,7 @@ internal sealed class CodexAccountReader : IAccountReader
         return new AccountInfo {
             status = "ready", emailMasked = masked,
             authLabel = authType == "chatgpt" ? "ChatGPT" : authType == "apiKey" ? "API Key" : authType,
-            planLabel = string.IsNullOrEmpty(plan) ? "未提供" : char.ToUpperInvariant(plan[0]) + plan.Substring(1)
+            planLabel = string.IsNullOrEmpty(plan) ? null : char.ToUpperInvariant(plan[0]) + plan.Substring(1)
         };
     }
 

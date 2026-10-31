@@ -37,6 +37,7 @@ internal static class Program
                     TaskbarShortcut.Create(root, appId);
                     return 0;
                 }
+                var settings = LauncherSettings.Read(root);
                 string runtime = CoreWebView2Environment.GetAvailableBrowserVersionString();
                 if (check)
                 {
@@ -48,7 +49,7 @@ internal static class Program
                 Marshal.ThrowExceptionForHR(SetCurrentProcessExplicitAppUserModelID(appId));
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                using (var window = new LauncherWindow(root, appId, preview))
+                using (var window = new LauncherWindow(root, appId, preview, settings))
                     Application.Run(window);
             }
             return 0;
@@ -80,6 +81,7 @@ internal sealed class LauncherWindow : Form
     private readonly bool preview;
     private readonly IDesktopTarget desktopTarget;
     private readonly IAccountReader accountReader;
+    private readonly LauncherSettings settings;
     private readonly WebView2 web = new WebView2();
     private bool closing;
     private bool handedOff;
@@ -93,23 +95,33 @@ internal sealed class LauncherWindow : Form
     private IntPtr desktopOwner;
 
     internal LauncherWindow(string root, string appId, bool preview)
-        : this(root, preview, new WindowsDesktopTarget(appId), new CodexAccountReader())
+        : this(root, appId, preview, LauncherSettings.Read(root)) { }
+
+    internal LauncherWindow(string root, string appId, bool preview, LauncherSettings settings)
+        : this(root, preview, new WindowsDesktopTarget(appId, settings.desktopWaitSeconds, true),
+            new CodexAccountReader(timeoutMs: settings.accountWaitSeconds * 1000), settings)
     {
-        ((WindowsDesktopTarget)desktopTarget).WindowAvailable = delegate(IntPtr owner) {
+        ((WindowsDesktopTarget)desktopTarget).WindowAvailable = delegate(IntPtr owner, Rectangle? bounds) {
             AttachDesktopOwner(owner);
+            if (!userMoved && bounds.HasValue) Bounds = bounds.Value;
             if (WindowState != FormWindowState.Minimized && IsStartupForeground) { BringToFront(); Activate(); }
         };
     }
 
     internal LauncherWindow(string root, bool preview, IDesktopTarget desktopTarget)
-        : this(root, preview, desktopTarget, null) { }
+        : this(root, preview, desktopTarget, null, new LauncherSettings()) { }
 
     internal LauncherWindow(string root, bool preview, IDesktopTarget desktopTarget, IAccountReader accountReader)
+        : this(root, preview, desktopTarget, accountReader, new LauncherSettings()) { }
+
+    internal LauncherWindow(string root, bool preview, IDesktopTarget desktopTarget, IAccountReader accountReader, LauncherSettings settings)
     {
         this.root = root;
         this.preview = preview;
         this.desktopTarget = desktopTarget;
         this.accountReader = accountReader;
+        this.settings = settings;
+        DoubleBuffered = true;
         Text = preview ? "Codex 启动动画 · 仅预览" : "Codex 启动动画";
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.None;
@@ -278,24 +290,22 @@ internal sealed class LauncherWindow : Form
             }
             BackgroundImageLayout = ImageLayout.Stretch;
             web.Visible = false;
-            Update();
-            // A background overlay fades in place without taking focus from another app.
-            if (IsStartupForeground)
-            {
-                desktopTarget.Focus();
-                // One ordinary Z-order raise for the fade, never HWND_TOPMOST.
-                if (!SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0013))
-                    throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
-            }
+            Refresh();
+            // Commit the captured animation frame before the first transparency change.
+            Marshal.ThrowExceptionForHR(DwmFlush());
             var fade = Stopwatch.StartNew();
-            while (fade.ElapsedMilliseconds < 780 && !closing)
+            while (fade.ElapsedMilliseconds < settings.fadeMilliseconds && !closing)
             {
-                double progress = Math.Min(1.0, fade.Elapsed.TotalMilliseconds / 780.0);
+                double progress = Math.Min(1.0, fade.Elapsed.TotalMilliseconds / settings.fadeMilliseconds);
                 Opacity = 1.0 - progress * progress * (3.0 - 2.0 * progress);
                 await Task.Delay(16);
             }
             if (closing) return;
+            // Keep the overlay in front throughout the fade. Focusing its owner earlier
+            // can expose the desktop before the captured frame has finished retiring.
+            bool focusDesktop = IsStartupForeground;
             Opacity = 0;
+            if (focusDesktop) desktopTarget.Focus();
             Close();
         }
         catch (OperationCanceledException) { /* The user closed the overlay while waiting. */ }
@@ -335,6 +345,11 @@ internal sealed class LauncherWindow : Form
 
     private void StartDesktop(bool requested)
     {
+        if (requested)
+        {
+            var target = desktopTarget as WindowsDesktopTarget;
+            if (target != null) target.BeginWaiting();
+        }
         desktopRequested |= requested;
         if (desktopReady != null)
         {
@@ -374,6 +389,8 @@ internal sealed class LauncherWindow : Form
             MessageBoxButtons.RetryCancel, MessageBoxIcon.Information);
         if (choice == DialogResult.Retry)
         {
+            var target = desktopTarget as WindowsDesktopTarget;
+            if (target != null) target.BeginWaiting(true);
             desktopReady = null;
             desktopFailure = null;
             StartDesktop(true);
@@ -402,11 +419,14 @@ internal sealed class LauncherWindow : Form
     internal void AttachDesktopOwner(IntPtr owner)
     {
         // Change only our window's owner, never the Codex window or package.
-        SetLastError(0);
-        IntPtr previous = SetWindowLongPtr(Handle, -8, owner); // GWLP_HWNDPARENT
-        int error = Marshal.GetLastWin32Error();
-        if (previous == IntPtr.Zero && error != 0)
-            throw new System.ComponentModel.Win32Exception(error);
+        if (GetWindow(Handle, 4) != owner)
+        {
+            SetLastError(0);
+            IntPtr previous = SetWindowLongPtr(Handle, -8, owner); // GWLP_HWNDPARENT
+            int error = Marshal.GetLastWin32Error();
+            if (previous == IntPtr.Zero && error != 0)
+                throw new System.ComponentModel.Win32Exception(error);
+        }
         desktopOwner = owner;
         PublishWindowState();
     }
@@ -437,6 +457,8 @@ internal sealed class LauncherWindow : Form
     }
 
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
+    [DllImport("dwmapi.dll")] private static extern int DwmFlush();
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool ShowWindowAsync(IntPtr window, int command);
