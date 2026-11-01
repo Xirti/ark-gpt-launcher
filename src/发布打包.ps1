@@ -1,4 +1,4 @@
-﻿param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '1.0.2')
+﻿param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '1.1.0')
 
 $ErrorActionPreference = 'Stop'
 $project = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
@@ -21,6 +21,7 @@ try {
     }
     foreach ($name in @('index.html', 'bridge.js', 'config.js',
         'dsh-startup\splash.js', 'dsh-startup\splash.css',
+        'dsh-startup\asset\montserrat-latin.woff2',
         'dsh-startup\asset\line-1.mp3', 'dsh-startup\asset\line-2.mp3',
         'dsh-startup\asset\line-3.mp3', 'dsh-startup\asset\line-4.mp3',
         'dsh-startup\asset\line-5.mp3', 'dsh-startup\asset\line-6.mp3',

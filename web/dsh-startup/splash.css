@@ -1,10 +1,18 @@
+@font-face {
+  font-family: "Ark Montserrat";
+  src: url("asset/montserrat-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 /* ============================================================================
  * dsh-startup-screen — 启动界面 / 启动动画样式
  * ----------------------------------------------------------------------------
  * 风格取自参考片（Hypergryph 式开机序列）：黑色序幕 → 灰白过曝洗白 → 暖白
  * "技术档案" 底板 → 等宽字距状态行 → 环形准星扫描 → WELCOME 版式 → 色散故障。
  *
- * 全部字体都取系统自带字体，零网络依赖：
+ * 欢迎标题使用随包携带的 Montserrat，其余字体使用系统字体，零网络依赖：
  *   --dsu-din   Bahnschrift（Windows 10+ 自带 DIN 1451 风格，对应参考片里
  *               "RHINE LAB / SYNTHESIZE INFORMATION" 那种窄体技术字）
  *   --dsu-mono  Cascadia Mono / Consolas（对应参考片里的等宽字距小字）
@@ -349,7 +357,7 @@
   font-weight: 400;
   letter-spacing: 0.22em;
   text-indent: 0.22em;
-  font-size: 40px;
+  font-size: clamp(26px, 2vw, 34px);
 }
 .dsu-caret {
   display: inline-block;
@@ -447,6 +455,128 @@
 }
 .dsu-idline.dsu-in { opacity: 1; transform: none; }
 
+/* 账户确认后的标志绘制与状态排版。标志不参与文字布局，便于退场。 */
+#dsh-startup-root .dsu-sequence-logo {
+  position: absolute;
+  z-index: 23;
+  left: 34.6875%;
+  top: 50%;
+  width: clamp(86px, 7vw, 150px);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity calc(300ms / var(--dsu-speed)) ease, transform calc(300ms / var(--dsu-speed)) ease;
+  text-align: center;
+  color: var(--dsu-ink);
+}
+#dsh-startup-root .dsu-sequence-logo.dsu-in {
+  opacity: 1;
+  animation: dsu-sequence-shift calc(2600ms / var(--dsu-speed)) linear forwards;
+}
+#dsh-startup-root .dsu-sequence-logo svg { display: block; width: 100%; height: auto; }
+#dsh-startup-root .dsu-sequence-logo.dsu-in svg {
+  transform-origin: center;
+  animation: dsu-sequence-rotate calc(12000ms / var(--dsu-speed)) linear calc(2600ms / var(--dsu-speed)) infinite;
+}
+/* Approximate theta = -360 * (t - .65 / (2*pi) * sin(2*pi*t)).
+   The four cubic segments match the angular speed at each quarter turn, so
+   acceleration and deceleration flow smoothly across the loop boundary. */
+@keyframes dsu-sequence-rotate {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(.333333, .199023, .666667, .431363); }
+  25% { transform: rotate(-52.757743deg); animation-timing-function: cubic-bezier(.333333, .235771, .666667, .610978); }
+  50% { transform: rotate(-180deg); animation-timing-function: cubic-bezier(.333333, .389022, .666667, .764229); }
+  75% { transform: rotate(-307.242257deg); animation-timing-function: cubic-bezier(.333333, .568637, .666667, .800977); }
+  100% { transform: rotate(-360deg); }
+}
+#dsh-startup-root .dsu-sequence-label {
+  margin-top: 10px;
+  font-family: var(--dsu-mono);
+  font-size: clamp(8px, .65vw, 10px);
+  letter-spacing: .4em;
+  text-indent: .4em;
+  white-space: nowrap;
+  color: var(--dsu-ink-soft);
+}
+#dsh-startup-root .dsu-sequence-ink { fill: currentColor; opacity: 0; }
+#dsh-startup-root .dsu-sequence-trace {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  opacity: 0;
+}
+#dsh-startup-root .dsu-sequence-logo.dsu-in .dsu-sequence-ink {
+  animation: dsu-sequence-ink calc(1450ms / var(--dsu-speed)) ease forwards,
+    dsu-sequence-fill-cycle calc(4800ms / var(--dsu-speed)) ease-in-out calc(2600ms / var(--dsu-speed)) infinite;
+}
+#dsh-startup-root .dsu-sequence-logo.dsu-in .dsu-sequence-trace {
+  animation: dsu-sequence-draw calc(1450ms / var(--dsu-speed)) cubic-bezier(.55,.06,.24,1) forwards,
+    dsu-sequence-outline-cycle calc(4800ms / var(--dsu-speed)) ease-in-out calc(2600ms / var(--dsu-speed)) infinite;
+}
+/* Cross-fade gently between filled and fully outlined; no rapid flashes. */
+@keyframes dsu-sequence-fill-cycle {
+  0%, 8%, 92%, 100% { opacity: 1; }
+  45%, 55% { opacity: 0; }
+}
+@keyframes dsu-sequence-outline-cycle {
+  0%, 8%, 92%, 100% { opacity: 0; stroke-dashoffset: 0; }
+  45%, 55% { opacity: 1; stroke-dashoffset: 0; }
+}
+/* 按参考 Logo 的 leftEdge 轨迹缩放到当前窗口。 */
+@keyframes dsu-sequence-shift {
+  0%, 47.69% { transform: translate(calc(-50% + 15.4167vw), -50%); }
+  53.85% { transform: translate(calc(-50% + 14.8438vw), -50%); }
+  60% { transform: translate(calc(-50% + 11.5625vw), -50%); }
+  63.08% { transform: translate(calc(-50% + 9.0104vw), -50%); }
+  66.15% { transform: translate(calc(-50% + 6.7708vw), -50%); }
+  69.23% { transform: translate(calc(-50% + 5.0521vw), -50%); }
+  72.31% { transform: translate(calc(-50% + 3.75vw), -50%); }
+  76.92% { transform: translate(calc(-50% + 2.3438vw), -50%); }
+  81.54% { transform: translate(calc(-50% + 1.4063vw), -50%); }
+  86.15% { transform: translate(calc(-50% + .7813vw), -50%); }
+  92.31% { transform: translate(calc(-50% + .2604vw), -50%); }
+  100% { transform: translate(-50%, -50%); }
+}
+@keyframes dsu-sequence-draw {
+  0% { stroke-dashoffset: 1; opacity: 1; }
+  75% { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes dsu-sequence-ink {
+  0%, 65% { opacity: 0; }
+  100% { opacity: 1; }
+}
+#dsh-startup-root.dsu-processing .dsu-center {
+  left: 48.49%;
+  right: auto;
+  top: 50%;
+  width: min(46vw, 700px);
+  align-items: flex-start;
+}
+#dsh-startup-root.dsu-processing .dsu-status.dsu-zhline {
+  font-size: clamp(18px, 1.6vw, 30px);
+  letter-spacing: .1em;
+  text-indent: 0;
+}
+#dsh-startup-root.dsu-processing .dsu-sub-en {
+  margin-top: 10px;
+  font-size: clamp(9px, .9vw, 12px);
+  letter-spacing: .18em;
+  text-indent: 0;
+}
+#dsh-startup-root.dsu-processing .dsu-rule { margin-top: 14px; }
+#dsh-startup-root.dsu-processing .dsu-rule.dsu-in { width: min(300px, 100%); }
+#dsh-startup-root.dsu-first-processing .dsu-center {
+  animation: dsu-processing-arrive calc(300ms / var(--dsu-speed)) ease calc(1900ms / var(--dsu-speed)) backwards;
+}
+@keyframes dsu-processing-arrive {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* ── 环形准星（验证通过）───────────────────────────────────────────────── */
 /* 照原片：环居中、直径约 56vw，状态字就落在环心里，两者是一个整体。
    关键是把两段弧的缺口都留在正下方 6 点钟方向，底部字幕永远不会被压到。 */
@@ -467,6 +597,21 @@
 .dsu-ret-rot-a { transform-origin: 50% 50%; animation: dsu-spin 9s linear infinite; }
 .dsu-ret-rot-b { transform-origin: 50% 50%; animation: dsu-spin 5.4s linear infinite reverse; }
 @keyframes dsu-spin { to { transform: rotate(360deg); } }
+/* 参考轨迹使用 1920×1080 坐标，保持原画面的圆弧与点位比例。 */
+#dsh-startup-root .dsu-reference-scan { display: none; }
+#dsh-startup-root.dsu-verified .dsu-reticle {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: none;
+  transition: none;
+}
+#dsh-startup-root.dsu-verified .dsu-reticle > svg:not(.dsu-reference-scan) { display: none; }
+#dsh-startup-root.dsu-verified .dsu-reticle > svg.dsu-reference-scan { display: block; }
+#dsh-startup-root.dsu-verified .dsu-center { top: 50%; transition: none; }
+#dsh-startup-root.dsu-verified .dsu-status.dsu-zhline { font-size: clamp(16px, 1.35vw, 25px); letter-spacing: .12em; }
+#dsh-startup-root.dsu-verified .dsu-sub-en { font-size: clamp(8px, .8vw, 11px); letter-spacing: .18em; }
+#dsh-startup-root.dsu-verified .dsu-rule { opacity: 0; }
 .dsu-reticle .dsu-ring-a { fill: none; stroke: var(--dsu-ink); stroke-width: 6; }
 .dsu-reticle .dsu-ring-b { fill: none; stroke: var(--dsu-box-ink); stroke-width: 2.2; opacity: 0.95; }
 .dsu-reticle .dsu-dot-a { fill: var(--dsu-ink); }
@@ -513,11 +658,13 @@
   align-items: center;
   gap: 12px;
   opacity: 0;
+  transform: translateY(6px);
   pointer-events: none;
-  transition: opacity 320ms ease;
+  transition: opacity calc(320ms / var(--dsu-speed)) ease, transform calc(360ms / var(--dsu-speed)) cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .dsu-action.dsu-in {
   opacity: 1;
+  transform: none;
   pointer-events: auto;
 }
 .dsu-btn {
@@ -534,7 +681,7 @@
   cursor: pointer;
   position: relative;
   overflow: hidden;
-  transition: color 220ms ease, border-color 220ms ease;
+  transition: color 220ms ease, border-color 220ms ease, opacity 220ms ease;
 }
 .dsu-btn::before {
   content: "";
@@ -544,11 +691,11 @@
   transform: translateX(-101%);
   transition: transform 300ms cubic-bezier(0.2, 0.9, 0.2, 1);
 }
-.dsu-btn:hover::before { transform: none; }
-.dsu-btn:hover { color: var(--dsu-box-ink); }
-.dsu-btn:hover .dsu-btn-en { color: var(--dsu-box-ink); opacity: 1; }
+.dsu-btn:not(:disabled):hover::before { transform: none; }
+.dsu-btn:not(:disabled):hover { color: var(--dsu-box-ink); }
+.dsu-btn:not(:disabled):hover .dsu-btn-en { color: var(--dsu-box-ink); opacity: 1; }
 .dsu-btn > * { position: relative; z-index: 1; }
-.dsu-btn:active { transform: translateY(1px); }
+.dsu-btn:not(:disabled):active { transform: translateY(1px); }
 .dsu-btn-zh { font-family: var(--dsu-zh); font-weight: 500; }
 .dsu-btn-en { font-family: var(--dsu-mono); font-size: 11px; letter-spacing: 0.24em; opacity: 0.62; }
 .dsu-btn.dsu-pulse { animation: dsu-pulse 1.9s ease-in-out infinite; }
@@ -557,11 +704,28 @@
   50% { box-shadow: 0 0 0 7px rgba(255, 117, 0, 0.14); }
 }
 .dsu-hint {
+  display: grid;
+  min-height: 20px;
+  line-height: 20px;
   font-family: var(--dsu-zh);
   font-size: 11px;
   letter-spacing: 0.16em;
   color: var(--dsu-muted);
 }
+.dsu-hint > span {
+  grid-area: 1 / 1;
+  justify-self: center;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 180ms ease, transform 240ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.dsu-hint.dsu-pending .dsu-hint-wait,
+.dsu-hint.dsu-ready .dsu-hint-ready {
+  opacity: 1;
+  transform: none;
+}
+.dsu-hint.dsu-ready .dsu-hint-ready { transition-delay: 100ms; }
 .dsu-hint kbd {
   font-family: var(--dsu-mono);
   border: 1px solid var(--dsu-hair);
@@ -604,64 +768,200 @@
   font-size: 15px;
   letter-spacing: 0.08em;
   color: var(--dsu-ink);
+  opacity: 0;
+  transform: translateY(5px);
+  transition: opacity 280ms ease, transform 320ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
+.dsu-card.dsu-ready .dsu-card-row b { opacity: 1; transform: none; }
+.dsu-card.dsu-ready .dsu-card-row:nth-child(2) b { transition-delay: 60ms; }
+.dsu-card.dsu-ready .dsu-card-row:nth-child(3) b { transition-delay: 120ms; }
 .dsu-card-row b.dsu-zhname { font-family: var(--dsu-zh); letter-spacing: 0.1em; }
 
 /* ── 终幕：WELCOME ─────────────────────────────────────────────────────── */
 .dsu-welcome {
+  --dsu-glitch-b: #17352b;
   position: absolute;
   left: 0;
   right: 0;
-  top: 45%;
-  transform: translateY(-50%);
+  top: calc(50% - min(7.14vw, 12.69vh));
+  transform: none;
   z-index: 30;
   display: flex;
   flex-direction: column;
   align-items: center;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 420ms ease;
+  transition: none;
 }
 .dsu-welcome.dsu-in { opacity: 1; }
-.dsu-w1 {
-  font-size: 40px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  text-indent: 0.2em;
-  color: var(--dsu-ink);
+#dsh-startup-root .dsu-welcome-panel {
+  position: absolute;
+  z-index: 0;
+  top: calc(-1 * min(3.07vw, 5.46vh));
+  left: 50%;
+  width: min(24.48vw, 43.52vh);
+  height: min(20.42vw, 36.3vh);
+  transform: translateX(-50%);
+  background: var(--dsu-ink);
+  opacity: 0;
 }
-.dsu-w2 {
-  margin-top: 12px;
+#dsh-startup-root .dsu-welcome > :not(.dsu-welcome-panel) { position: relative; z-index: 1; }
+#dsh-startup-root .dsu-welcome.dsu-in .dsu-welcome-panel {
+  animation: dsu-welcome-panel-flash calc(280ms / var(--dsu-speed)) steps(1, end);
+}
+#dsh-startup-root .dsu-welcome.dsu-in .dsu-w1 {
+  animation: dsu-welcome-ink-flash calc(280ms / var(--dsu-speed)) steps(1, end);
+}
+@keyframes dsu-welcome-panel-flash {
+  0% { opacity: 1; }
+  14.285% { opacity: 0; }
+  28.57% { opacity: .28; }
+  42.855% { opacity: 0; }
+  57.14% { opacity: 1; }
+  71.425%, 100% { opacity: 0; }
+}
+@keyframes dsu-welcome-ink-flash {
+  0%, 14.285% { color: var(--dsu-box-ink); }
+  28.57% { color: #ccc; }
+  42.855% { color: var(--dsu-ink); }
+  57.14%, 71.425% { color: var(--dsu-box-ink); }
+  85.71% { color: #bfbfbf; }
+  100% { color: var(--dsu-ink); }
+}
+#dsh-startup-root .dsu-w1 {
+  font-family: "Ark Montserrat", var(--dsu-din);
+  font-size: clamp(28px, 2.5vw, 48px);
+  line-height: 1.08;
+  font-weight: 700;
+  letter-spacing: .045em;
+  color: var(--dsu-ink);
+  white-space: nowrap;
+}
+#dsh-startup-root .dsu-w2 {
+  position: relative;
+  display: inline-grid;
+  margin-top: 8px;
+  font-family: "Ark Montserrat", var(--dsu-din);
+  font-size: clamp(26px, 2.3vw, 44px);
+  font-weight: 700;
+  letter-spacing: .025em;
+  line-height: 1;
+  color: var(--dsu-ink);
+  opacity: 0;
+}
+#dsh-startup-root .dsu-w2-base,
+#dsh-startup-root .dsu-w2-highlight {
+  grid-area: 1 / 1;
+  padding: 5px 13px 7px;
+  white-space: nowrap;
+}
+#dsh-startup-root .dsu-w2-highlight {
   background: var(--dsu-box-bg);
   color: var(--dsu-box-ink);
-  padding: 7px 16px 8px;
-  font-size: 27px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-indent: 0.12em;
+  clip-path: inset(0 100% 0 0);
 }
-.dsu-w3 {
-  margin-top: 30px;
+#dsh-startup-root .dsu-w4 {
+  max-width: calc(100vw - 100px);
+  margin-top: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--dsu-zh);
+  font-size: clamp(14px, 1.2vw, 20px);
+  line-height: 1.4;
+  letter-spacing: .1em;
+  color: var(--dsu-ink);
+  opacity: 0;
+}
+#dsh-startup-root .dsu-w3 {
+  margin-top: clamp(22px, 3vh, 36px);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 10px;
+  opacity: 0;
 }
-.dsu-w3 svg { width: 76px; height: 76px; color: var(--dsu-ink); }
-.dsu-w3 span {
+#dsh-startup-root .dsu-w3 svg { width: clamp(68px, 6vw, 98px); height: auto; color: var(--dsu-ink); overflow: visible; }
+#dsh-startup-root .dsu-w3 .dsu-welcome-ghost {
+  fill: none;
+  stroke-width: 1px;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0;
+}
+#dsh-startup-root .dsu-w3 .dsu-welcome-ghost-red {
+  stroke: #f0445b;
+  --dsu-ghost-near: -32px;
+  --dsu-ghost-far: -46px;
+}
+#dsh-startup-root .dsu-w3 .dsu-welcome-ghost-blue {
+  stroke: #3581f4;
+  --dsu-ghost-near: 32px;
+  --dsu-ghost-far: 46px;
+}
+#dsh-startup-root .dsu-w3 span {
   font-family: var(--dsu-mono);
   font-size: 10px;
-  letter-spacing: 0.5em;
-  text-indent: 0.5em;
+  letter-spacing: .5em;
+  text-indent: .5em;
   color: var(--dsu-ink-soft);
 }
-.dsu-w4 {
-  margin-top: 20px;
-  font-family: var(--dsu-zh);
-  font-size: 15px;
-  letter-spacing: 0.28em;
-  text-indent: 0.28em;
-  color: var(--dsu-ink);
+#dsh-startup-root .dsu-welcome.dsu-in .dsu-w2 {
+  animation: dsu-welcome-company calc(400ms / var(--dsu-speed)) steps(1, end) calc(760ms / var(--dsu-speed)) forwards;
+}
+/* Adapted from RhineLabUI src/boot-tracks.ts highlightKeys, LBEILC, MIT. */
+#dsh-startup-root .dsu-welcome.dsu-in .dsu-w2-highlight {
+  animation: dsu-welcome-sweep calc(920ms / var(--dsu-speed)) linear calc(760ms / var(--dsu-speed)) forwards;
+}
+#dsh-startup-root .dsu-welcome.dsu-in .dsu-w4 {
+  animation: dsu-welcome-third calc(360ms / var(--dsu-speed)) steps(1, end) calc(2280ms / var(--dsu-speed)) forwards;
+}
+#dsh-startup-root .dsu-welcome.dsu-in .dsu-w3 {
+  animation: dsu-welcome-show calc(120ms / var(--dsu-speed)) ease calc(760ms / var(--dsu-speed)) forwards;
+}
+#dsh-startup-root .dsu-welcome.dsu-in .dsu-w3 svg {
+  animation: dsu-welcome-logo-glitch calc(840ms / var(--dsu-speed)) steps(1, end) calc(1300ms / var(--dsu-speed));
+}
+@keyframes dsu-welcome-logo-glitch {
+  0%, 22%, 57%, 93%, 100% { opacity: 1; transform: none; }
+  3%, 30%, 65% { opacity: .54; transform: translate(-2.8px, .75px) skewX(-2deg); }
+  6%, 33%, 68% { opacity: .82; transform: translate(2.8px, -.75px) skewX(2deg); }
+  18%, 53%, 89% { opacity: .68; transform: translate(-1.2px, .25px) skewX(-1deg); }
+}
+#dsh-startup-root .dsu-welcome.dsu-in .dsu-w3 .dsu-welcome-ghost {
+  animation: dsu-welcome-ghost calc(840ms / var(--dsu-speed)) steps(1, end) calc(1300ms / var(--dsu-speed));
+}
+@keyframes dsu-welcome-ghost {
+  0%, 22%, 57%, 93%, 100% { opacity: 0; transform: translateX(0); }
+  3%, 30%, 65% { opacity: .58; transform: translateX(var(--dsu-ghost-near)); }
+  6%, 33%, 68% { opacity: .68; transform: translateX(var(--dsu-ghost-far)); }
+  18%, 53%, 89% { opacity: .36; transform: translateX(var(--dsu-ghost-near)); }
+}
+@keyframes dsu-welcome-show { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dsu-welcome-company { 0% { opacity: 1; } 20% { opacity: 0; } 40%, 100% { opacity: 1; } }
+@keyframes dsu-welcome-third { 0% { opacity: 1; } 22.22% { opacity: 0; } 44.44% { opacity: 1; } 55.55% { opacity: 0; } 66.66% { opacity: 1; } 88.88% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes dsu-welcome-sweep {
+  0% { clip-path: inset(0 99.02% 0 0); }
+  4.35% { clip-path: inset(0 90.49% 0 0); }
+  17.39% { clip-path: inset(0 45.12% 0 0); }
+  21.74% { clip-path: inset(0 36.34% 0 0); }
+  26.09% { clip-path: inset(0 29.76% 0 0); }
+  30.43% { clip-path: inset(0 24.39% 0 0); }
+  34.78% { clip-path: inset(0 20% 0 0); }
+  39.13% { clip-path: inset(0 16.34% 0 0); }
+  43.48% { clip-path: inset(0 13.17% 0 0); }
+  47.83% { clip-path: inset(0 10.73% 0 0); }
+  52.17% { clip-path: inset(0 8.54% 0 0); }
+  56.52% { clip-path: inset(0 6.83% 0 0); }
+  60.87% { clip-path: inset(0 5.12% 0 0); }
+  65.22% { clip-path: inset(0 3.9% 0 0); }
+  69.57% { clip-path: inset(0 2.93% 0 0); }
+  73.91% { clip-path: inset(0 1.95% 0 0); }
+  78.26% { clip-path: inset(0 1.22% 0 0); }
+  82.61% { clip-path: inset(0 .73% 0 0); }
+  86.96% { clip-path: inset(0 .49% 0 0); }
+  91.3% { clip-path: inset(0 .24% 0 0); }
+  95.65%, 100% { clip-path: inset(0 0 0 0); }
 }
 
 /* 色散故障（参考片结尾的青蓝色偏）
@@ -792,11 +1092,11 @@
 #dsh-startup-root.dsu-peak .dsu-w1,
 #dsh-startup-root.dsu-peak .dsu-w4 {
   color: var(--dsu-glitch-b);
-  text-shadow: 0 0 14px rgba(41, 113, 184, 0.55);
+  text-shadow: 0 0 6px rgba(8, 55, 35, 0.18);
   transition: color 260ms ease, text-shadow 260ms ease;
 }
 #dsh-startup-root.dsu-peak .dsu-w3 svg {
-  filter: drop-shadow(0 0 10px rgba(41, 113, 184, 0.45));
+  filter: drop-shadow(0 0 5px rgba(8, 55, 35, 0.16));
 }
 #dsh-startup-root.dsu-peak .dsu-grain { opacity: 0.11; }
 
@@ -1098,6 +1398,14 @@
 
 /* 无障碍：尊重系统"减少动态效果" */
 @media (prefers-reduced-motion: reduce) {
+  #dsh-startup-root .dsu-action,
+  #dsh-startup-root .dsu-card-row b,
+  #dsh-startup-root .dsu-hint > span {
+    transition-duration: 0.01ms;
+    transition-delay: 0ms;
+    transform: none;
+  }
+
   #dsh-startup-root .dsu-ret-rot-a,
   #dsh-startup-root .dsu-ret-rot-b { animation: none; }
   #dsh-startup-root .dsu-scanline.dsu-go { animation: none; }
@@ -1117,4 +1425,20 @@
 #window-drag {position:fixed;left:0;right:calc(138px * var(--window-control-scale));top:0;height:calc(40px * var(--window-control-scale));z-index:2147483050;app-region:drag;cursor:move}
 .dsu-skip, .dsu-btn {app-region:no-drag}
 .dsu-skip {right:60px;top:calc(48px * var(--window-control-scale))}
-.dsu-btn:disabled {cursor:wait;opacity:.55}
+.dsu-btn:disabled {cursor:default;opacity:.55}
+
+@media (prefers-reduced-motion: reduce) {
+  #dsh-startup-root .dsu-welcome.dsu-in .dsu-welcome-panel { animation: none; opacity: 0; }
+  #dsh-startup-root .dsu-welcome.dsu-in .dsu-w1 { animation: none; }
+  #dsh-startup-root .dsu-sequence-logo.dsu-in { animation: none; transform: translate(-50%, -50%); }
+  #dsh-startup-root .dsu-sequence-logo.dsu-in svg { animation: none; transform: none; }
+  #dsh-startup-root .dsu-sequence-logo.dsu-in .dsu-sequence-ink { animation: none; opacity: 1; }
+  #dsh-startup-root .dsu-sequence-logo.dsu-in .dsu-sequence-trace { animation: none; opacity: 0; }
+  #dsh-startup-root .dsu-welcome.dsu-in .dsu-w3 svg { animation: none; }
+  #dsh-startup-root .dsu-welcome.dsu-in .dsu-w3 .dsu-welcome-ghost { animation: none; opacity: 0; }
+  #dsh-startup-root.dsu-first-processing .dsu-center { animation: none; }
+  #dsh-startup-root .dsu-welcome.dsu-in .dsu-w2,
+  #dsh-startup-root .dsu-welcome.dsu-in .dsu-w3,
+  #dsh-startup-root .dsu-welcome.dsu-in .dsu-w4 { animation: none; opacity: 1; }
+  #dsh-startup-root .dsu-welcome.dsu-in .dsu-w2-highlight { animation: none; clip-path: inset(0); }
+}

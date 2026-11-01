@@ -19,7 +19,8 @@ internal static class ConversationReadiness
             foreach (AutomationElement candidate in candidates)
             {
                 var info = candidate.Current;
-                if (!info.IsKeyboardFocusable || info.BoundingRectangle.Width < 200) continue;
+                if (info.IsOffscreen || !info.IsKeyboardFocusable ||
+                    info.BoundingRectangle.Width < 200 || info.BoundingRectangle.Height <= 0) continue;
                 string name = info.Name.ToLowerInvariant();
                 string id = info.AutomationId.ToLowerInvariant();
                 string className = info.ClassName.ToLowerInvariant();

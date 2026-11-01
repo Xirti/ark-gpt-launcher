@@ -35,6 +35,7 @@
       minimize.disabled = !event.data.canMinimize;
       minimize.title = event.data.canMinimize ? '最小化' : '等待 Codex 窗口出现后可最小化';
       var button = document.getElementById('maximize-launcher');
+      button.disabled = event.data.canMaximize === false;
       button.title = event.data.maximized ? '还原' : '最大化';
       button.setAttribute('aria-label', button.title);
       button.classList.toggle('is-maximized', event.data.maximized);
@@ -45,7 +46,9 @@
       resolveAccount();
     }
   });
-  window.addEventListener('error', function () { window.chrome.webview.postMessage('animation-error'); });
+  function reportAnimationError() { window.chrome.webview.postMessage('animation-error'); }
+  window.addEventListener('error', reportAnimationError, true);
+  window.addEventListener('unhandledrejection', reportAnimationError);
   window.addEventListener('dsh-startup:done', function () {
     window.chrome.webview.postMessage('animation-done');
   }, { once: true });
@@ -56,5 +59,6 @@
       });
     });
     window.chrome.webview.postMessage('animation-started');
+    window.__CODEX_READ_ACCOUNT__();
   });
 })();

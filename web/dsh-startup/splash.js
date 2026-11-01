@@ -51,10 +51,10 @@
     brand1: 'OPENAI',
     brand2: 'SYNTHESIZE INTELLIGENCE',
     brand3a: 'CODEX',
-    brand3b: 'DESKTOP',
+    brand3b: 'OS',
     orgZh: 'OpenAI',
-    orgEn: 'OPENAI',
-    orgSub: 'CODEX DESKTOP',
+    orgEn: 'CODEX',
+    orgSub: 'OPENAI CODEX',
     welcomeBox: 'CODEX',
     footer: 'POWERED BY OPENAI',
     accent: '#ff7500',
@@ -143,27 +143,6 @@
       reticle: true
     }
   ]
-
-  if (window.__CODEX_STAGED__) {
-    STEPS[0].zh = '读取登录账户'
-    STEPS[0].en = 'READ SIGNED-IN ACCOUNT'
-    STEPS[0].btnZh = '确认登录'
-    STEPS[0].btnEn = 'CONTINUE'
-    STEPS[0].log = '确认后读取本机 Codex 账户资料'
-    STEPS[1].zh = '确认当前账户'
-    STEPS[1].btnZh = '确认账户'
-    STEPS[1].btnEn = 'CONFIRM ACCOUNT'
-    STEPS[2].zh = '正在准备 Codex'
-    STEPS[2].en = 'PREPARING CODEX'
-    STEPS[2].log = '桌面应用已在预加载，等待会话准备…'
-    STEPS[3].zh = '正在加载会话'
-    STEPS[3].en = 'LOADING CONVERSATION'
-    STEPS[3].log = '等待会话输入框准备完成…'
-    STEPS[3].logEn = 'WAITING FOR CONVERSATION'
-    STEPS[4].zh = '会话已准备好'
-    STEPS[4].en = 'CONVERSATION READY'
-    STEPS[4].log = '会话界面就绪，准备进入 Codex'
-  }
 
   function cfg() {
     var raw = (window.__DSH_STARTUP__ && typeof window.__DSH_STARTUP__ === 'object')
@@ -405,6 +384,7 @@
     disarmStall()
     try { releaseAll() } catch (e) { /* noop */ }
     try { stopHex() } catch (e) { /* noop */ }
+    if (referenceScan) referenceScan.stop()
     if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
     try { voice.stop() } catch (e) { /* noop */ }
     try {
@@ -549,14 +529,16 @@
       '<div class="dsu-logo"></div>' +
       '<div class="dsu-dots" hidden></div>' +
     '</div>' +
+    '<div class="dsu-sequence-logo" aria-hidden="true"></div>' +
     '<div class="dsu-idline"></div>' +
     '<div class="dsu-reticle"></div>' +
     '<div class="dsu-hex"></div>' +
     '<div class="dsu-welcome">' +
+      '<div class="dsu-welcome-panel" aria-hidden="true"></div>' +
       '<div class="dsu-w1">WELCOME TO</div>' +
-      '<div class="dsu-w2"></div>' +
-      '<div class="dsu-w3"></div>' +
+      '<div class="dsu-w2"><span class="dsu-w2-base"></span><span class="dsu-w2-highlight" aria-hidden="true"></span></div>' +
       '<div class="dsu-w4"></div>' +
+      '<div class="dsu-w3"></div>' +
     '</div>' +
     '<div class="dsu-action">' +
       '<div class="dsu-card" hidden></div>' +
@@ -610,12 +592,15 @@
   ui.rule = q('.dsu-rule')
   ui.logo = q('.dsu-logo')
   ui.dots = q('.dsu-dots')
+  ui.sequenceLogo = q('.dsu-sequence-logo')
   ui.idline = q('.dsu-idline')
   ui.reticle = q('.dsu-reticle')
   ui.hex = q('.dsu-hex')
   ui.welcome = q('.dsu-welcome')
   ui.w1 = q('.dsu-w1')
   ui.w2 = q('.dsu-w2')
+  ui.w2Base = q('.dsu-w2-base')
+  ui.w2Highlight = q('.dsu-w2-highlight')
   ui.w3 = q('.dsu-w3')
   ui.w4 = q('.dsu-w4')
   ui.action = q('.dsu-action')
@@ -645,9 +630,10 @@
   ui.brand3b.textContent = C.brand3a
   ui.brand3s.textContent = C.brand3b
   ui.footText.textContent = C.footer
-  ui.w2.textContent = C.welcomeBox
-  ui.w4.textContent = '欢迎访问'
-  ui.idline.textContent = '· ACCOUNT : ----'
+  ui.w2Base.textContent = C.welcomeBox
+  ui.w2Highlight.textContent = C.welcomeBox
+  ui.w4.textContent = '欢迎 ---- 访问'
+  ui.idline.textContent = '· ID CONFIRMED : ----'
 
   ;(function blackStage() {
     var inner = ui.blackInner
@@ -665,8 +651,28 @@
     ui.logo.appendChild(el('div', 'dsu-logolabel', 'O P E N A I'))
   })()
 
+  ;(function sequenceLogo() {
+    var icon = svgWhale()
+    var ink = icon.querySelector('path')
+    ink.setAttribute('class', 'dsu-sequence-ink')
+    var trace = ink.cloneNode(false)
+    trace.setAttribute('class', 'dsu-sequence-trace')
+    trace.setAttribute('pathLength', '1')
+    icon.appendChild(trace)
+    ui.sequenceLogo.appendChild(icon)
+    ui.sequenceLogo.appendChild(el('div', 'dsu-sequence-label', 'O P E N A I'))
+  })()
+
   ;(function welcomeLogo() {
-    ui.w3.appendChild(svgWhale())
+    var logo = svgWhale()
+    var ink = logo.querySelector('path')
+    ink.setAttribute('class', 'dsu-welcome-logo-ink')
+    ;['red', 'blue'].forEach(function (color) {
+      var ghost = ink.cloneNode(false)
+      ghost.setAttribute('class', 'dsu-welcome-ghost dsu-welcome-ghost-' + color)
+      logo.insertBefore(ghost, ink)
+    })
+    ui.w3.appendChild(logo)
     ui.w3.appendChild(el('span', 'dsu-w3label', 'O P E N A I  ·  C O D E X'))
   })()
 
@@ -748,12 +754,566 @@
     ui.reticle.appendChild(svg)
   })()
 
+
+  /* RhineLabUI: scanTrack, scanOrbitTrack and interpolation, LBEILC, MIT.
+     Reference commit 12cc5e4013acb9408f753ff71de6b8492299b7c8. */
+  var referenceScan = window.__CODEX_STAGED__ ? (function () {
+    function track(keys, frame) {
+      if (frame <= keys[0][0]) return keys[0][1];
+      const last = keys.length - 1;
+      if (frame >= keys[last][0]) return keys[last][1];
+      const slope = (i) =>
+        (keys[i + 1][1] - keys[i][1]) / (keys[i + 1][0] - keys[i][0]);
+      const tangent = (i) => {
+        if (i === 0) return slope(0);
+        if (i === last) return slope(last - 1);
+        const a = slope(i - 1),
+          b = slope(i);
+        if (a * b <= 0) return 0;
+        const h0 = keys[i][0] - keys[i - 1][0],
+          h1 = keys[i + 1][0] - keys[i][0];
+        const w0 = 2 * h1 + h0,
+          w1 = h1 + 2 * h0;
+        return (w0 + w1) / (w0 / a + w1 / b);
+      };
+      let i = 0;
+      while (frame > keys[i + 1][0]) i++;
+      const h = keys[i + 1][0] - keys[i][0],
+        p = (frame - keys[i][0]) / h;
+      return (
+        (2 * p ** 3 - 3 * p ** 2 + 1) * keys[i][1] +
+        (p ** 3 - 2 * p ** 2 + p) * h * tangent(i) +
+        (-2 * p ** 3 + 3 * p ** 2) * keys[i + 1][1] +
+        (p ** 3 - p ** 2) * h * tangent(i + 1)
+      );
+    }
+
+
+    function scanTrack(frame) {
+      const value = (keys) => track(keys, frame);
+      const rad = Math.PI / 180;
+      return {
+        radius: value([
+          [487, 2000],
+          [492, 1540],
+          [497, 1095],
+          [500, 895.5],
+          [505, 650],
+          [510, 492],
+          [515, 385.5],
+          [520, 320.5],
+          [524, 287.5],
+          [527, 275],
+          [530, 270],
+          [535, 265.5],
+          [540, 262],
+          [545, 258],
+          [550, 255],
+          [555, 252.5],
+          [560, 250],
+          [568, 246],
+        ]),
+        whiteRadius: value([
+          [487, 1500],
+          [492, 1011],
+          [493, 955],
+          [494, 893],
+          [495, 834],
+          [496, 783],
+          [497, 737],
+          [498, 693.5],
+          [499, 655],
+          [500, 619],
+          [505, 470.5],
+          [510, 374],
+          [515, 310.5],
+          [520, 272],
+          [524, 253.5],
+          [527, 248],
+          [530, 246],
+          [535, 242],
+          [540, 238],
+          [545, 235],
+          [550, 232.5],
+          [555, 230],
+          [560, 227.5],
+          [568, 224],
+        ]),
+        outerStart:
+          rad *
+          value([
+            [487, 470],
+            [492, 364],
+            [497, 276],
+            [500, 226],
+            [505, 159.75],
+            [510, 98.75],
+            [515, 49.25],
+            [520, 13.25],
+            [524, -9],
+            [527, -23],
+            [530, -36.25],
+            [535, -53],
+            [540, -66.25],
+            [545, -75.75],
+            [550, -82.75],
+            [560, -89],
+            [568, -90],
+          ]),
+        outerSweep:
+          rad *
+          value([
+            [487, 30],
+            [492, 105],
+            [497, 170],
+            [500, 199],
+            [505, 241.5],
+            [510, 270.25],
+            [515, 295.75],
+            [520, 313.25],
+            [527, 331],
+            [530, 336.75],
+            [535, 344.5],
+            [540, 350.75],
+            [545, 355],
+            [550, 358],
+            [560, 360],
+            [568, 360],
+          ]),
+        whiteStart:
+          rad *
+          value([
+            [487, -100],
+            [492, -30],
+            [497, 72],
+            [500, 107],
+            [505, 140],
+            [510, 172],
+            [515, 196],
+            [520, 213.75],
+            [527, 234.5],
+            [530, 241],
+            [535, 249.75],
+            [540, 256.75],
+            [545, 262.25],
+            [550, 265.75],
+            [560, 269.5],
+            [568, 270],
+          ]),
+        whiteSweep:
+          rad *
+          value([
+            [487, 30],
+            [492, 105],
+            [497, 170],
+            [500, 200],
+            [505, 241.25],
+            [510, 272.75],
+            [515, 295.5],
+            [520, 313.75],
+            [527, 330.5],
+            [530, 335.5],
+            [535, 343.5],
+            [540, 349.5],
+            [545, 354],
+            [550, 357],
+            [560, 360],
+            [568, 360],
+          ]),
+        innerRadius: value([
+          [487, 124.5],
+          [492, 123],
+          [495, 121],
+          [500, 117.5],
+          [505, 112],
+          [510, 107.5],
+          [515, 104],
+          [520, 101.5],
+          [530, 97],
+          [540, 94],
+          [550, 91.5],
+          [560, 90],
+          [568, 88.5],
+        ]),
+        innerStart:
+          rad *
+          value([
+            [487, -20],
+            [490, -4.25],
+            [492, 14],
+            [495, 48.75],
+            [497, 69.25],
+            [500, 93.25],
+            [505, 121.25],
+            [510, 141],
+            [515, 155.5],
+            [520, 166.5],
+            [527, 178],
+            [530, 181],
+            [535, 187.75],
+            [540, 192],
+            [545, 195.25],
+            [550, 197.75],
+            [555, 199.75],
+            [560, 200.75],
+            [568, 201.5],
+          ]),
+        innerSweep:
+          rad *
+          value([
+            [487, 0],
+            [492, 22.5],
+            [497, 55.75],
+            [500, 70.25],
+            [505, 87.25],
+            [510, 99],
+            [515, 108],
+            [520, 115],
+            [527, 123.5],
+            [530, 127],
+            [535, 128],
+            [540, 131],
+            [550, 134],
+            [568, 136],
+          ]),
+        orbit:
+          rad *
+          value([
+            [487, 70],
+            [492, 33],
+            [493, 13.2],
+            [494, -5.8],
+            [495, -24.2],
+            [496, -41.4],
+            [497, -57.2],
+            [498, -71.4],
+            [499, -84.2],
+            [500, -96],
+            [505, -140.8],
+            [510, -172.3],
+            [515, -195.5],
+            [520, -213.5],
+            [527, -234],
+            [530, -238.8],
+            [535, -247.7],
+            [540, -254.7],
+            [545, -260.1],
+            [550, -264],
+            [555, -266.9],
+            [560, -268.8],
+            [568, -270],
+          ]),
+        orbitRadius: value([
+          [487, 270],
+          [495, 236],
+          [500, 224],
+          [505, 214],
+          [510, 206],
+          [515, 199],
+          [520, 193],
+          [530, 185],
+          [540, 179.5],
+          [550, 174.5],
+          [560, 171.5],
+          [568, 169],
+        ]),
+        dotRadius: value([
+          [487, 0],
+          [492, 1],
+          [500, 5.6],
+          [510, 7],
+          [520, 7.8],
+          [530, 8],
+          [568, 8],
+        ]),
+        blackCap: value([
+          [487, 45],
+          [504, 35],
+          [510, 20],
+          [515, 10],
+          [520, 5],
+          [525, 2.5],
+          [535, 2],
+          [550, 0],
+          [568, 0],
+        ]),
+        whiteCap: value([
+          [487, 40],
+          [492, 30],
+          [497, 22],
+          [502, 16],
+          [507, 10],
+          [512, 5],
+          [520, 1.5],
+          [540, 0],
+          [568, 0],
+        ]),
+      };
+    }
+
+    // Source frames 543–568. Angles are unwrapped: the left arc turns clockwise,
+    // the right arc counterclockwise. Each grows while its angular speed decays.
+    // Columns: frame, left x/y, right x/y, radius, left/right start, left/right sweep.
+    // Early short strokes are manually fitted; longer arcs are measured by
+    // reference/measure-scan-detail.py. Centers also settle towards y=539.5.
+    const sides = [
+      [543, 827.5, 561, 1091, 518, 38.7, 260, 250, 0, 0],
+      [544, 827.5, 561, 1091, 518, 38.7, 260, 250, 3, 3],
+      [545, 827.5, 560.5, 1091, 518.5, 38.6, 265, 236, 17, 17],
+      [546, 827.5, 559.5, 1091, 519.5, 38.5, 274, 190, 44, 44],
+      [547, 827.6, 558.2, 1090.6, 520.8, 38.5, 296, 121, 79, 81],
+      [548, 828.06, 556.76, 1090.35, 522.58, 38.38, 332.38, 50.99, 111.73, 113.42],
+      [549, 827.84, 555.13, 1090.42, 524.39, 38.34, 367.27, -14.03, 141.56, 145.66],
+      [550, 827.89, 553.28, 1090.2, 525.89, 38.44, 396.14, -68.97, 168.88, 172.89],
+      [551, 828, 551.68, 1090.21, 527.44, 38.28, 421.62, -113.84, 191.68, 195.3],
+      [552, 828.19, 550.24, 1089.94, 528.85, 38.25, 444.24, -152.25, 208.55, 215.7],
+      [553, 828.42, 548.83, 1089.7, 530.24, 38.18, 462.76, -184.19, 225.92, 230.73],
+      [554, 828.61, 547.64, 1089.53, 531.44, 38.12, 479.15, -212.29, 239.9, 244.63],
+      [555, 828.8, 546.47, 1089.37, 532.55, 38.03, 494.23, -237.06, 251.56, 257.75],
+      [
+        556, 829.06, 545.41, 1089.16, 533.53, 37.91, 508.57, -259.19, 261.49,
+        267.63,
+      ],
+      [557, 829.25, 544.49, 1088.93, 534.52, 37.87, 520.46, -279.2, 271.23, 278.42],
+      [558, 829.47, 543.66, 1088.7, 535.37, 37.79, 530.39, -295.86, 280.34, 286.17],
+      [559, 829.75, 542.88, 1088.46, 536.12, 37.72, 541.33, -312.5, 287.17, 295.12],
+      [
+        560, 829.95, 542.16, 1088.26, 536.88, 37.65, 549.47, -326.37, 295.98,
+        301.16,
+      ],
+      [
+        561, 830.16, 541.63, 1088.02, 537.41, 37.57, 557.82, -338.78, 302.29,
+        307.52,
+      ],
+      [562, 830.33, 541.08, 1087.81, 537.94, 37.52, 565.1, -350.74, 307.99, 312.58],
+      [
+        563, 830.59, 540.65, 1087.61, 538.36, 37.43, 571.89, -362.08, 313.78,
+        319.28,
+      ],
+      [
+        564, 830.83, 540.28, 1087.38, 538.74, 37.37, 578.93, -371.93, 316.97,
+        323.53,
+      ],
+      [
+        565, 831.04, 539.97, 1087.14, 539.04, 37.35, 583.85, -380.51, 322.27,
+        327.78,
+      ],
+      [
+        566, 831.25, 539.74, 1086.93, 539.28, 37.27, 589.84, -388.93, 325.61,
+        331.62,
+      ],
+      [567, 831.48, 539.56, 1086.73, 539.4, 37.19, 594, -396.5, 330.93, 335.92],
+      [568, 831.61, 539.51, 1086.55, 539.48, 37.15, 599.44, -403.94, 332.25, 338.7],
+    ];
+    const columns = Array.from({ length: 9 }, (_, i) =>
+      sides.map((row) => [row[0], row[i + 1]]),
+    );
+    const orbit = [
+      [548, 926.33, 554.33],
+      [551, 944.38, 572.15],
+      [553, 954.92, 575.05],
+      [555, 963, 575],
+      [558, 971.63, 572.85],
+      [561, 977.53, 569.78],
+      [564, 981.5, 566.86],
+      [568, 984.71, 563.5],
+    ];
+    const orbitAngle = orbit.map(
+      ([f, x, y]) => [f, Math.atan2(y - 539.5, x - 959.5)],
+    );
+    const orbitRadius = orbit.map(
+      ([f, x, y]) => [f, Math.hypot(x - 959.5, y - 539.5)],
+    );
+    const dotGrowth = [
+      [-1, 0],
+      [0, 0.8],
+      [1, 1.7],
+      [2, 2.35],
+      [3, 2.85],
+      [4, 3.15],
+      [5, 3.45],
+      [7, 3.8],
+      [10, 4.1],
+      [15, 4.25],
+      [20, 4.25],
+    ];
+
+    function scanOrbitTrack(frame) {
+      const values = columns.map((keys) => track(keys, frame));
+      const [lx, ly, rx, ry, radius, leftStart, rightStart, leftSweep, rightSweep] =
+        values;
+      const angle = track(orbitAngle, frame),
+        distance = track(orbitRadius, frame);
+      const sourceFrame = Math.floor(frame + 0.00001);
+      // Large core flashes are editorial cuts. The small core then grows gently
+      // as six satellites appear in three-frame steps, with continuing orbit phase.
+      const flash = [546, 547, 549, 550].includes(sourceFrame);
+      const coreRadius = flash
+        ? track(
+            [
+              [546, 42.93],
+              [550, 42.43],
+            ],
+            frame,
+          )
+        : track(
+            [
+              [545, 0],
+              [548, 7.96],
+              [551, 9.89],
+              [553, 10.63],
+              [555, 11.08],
+              [559, 11.45],
+              [564, 11.45],
+              [568, 11.27],
+            ],
+            frame,
+          );
+      return {
+        sides: [
+          {
+            x: lx,
+            y: ly,
+            radius,
+            start: (leftStart * Math.PI) / 180,
+            sweep: (leftSweep * Math.PI) / 180,
+          },
+          {
+            x: rx,
+            y: ry,
+            radius,
+            start: (rightStart * Math.PI) / 180,
+            sweep: (rightSweep * Math.PI) / 180,
+          },
+        ],
+        sideVisible: frame >= 544,
+        coreRadius,
+        satellites: Array.from({ length: 6 }, (_, i) => {
+          const phase = angle + (i * Math.PI) / 3;
+          return {
+            x: 959.5 + Math.cos(phase) * distance,
+            y: 539.5 + Math.sin(phase) * distance,
+            radius: track(dotGrowth, frame - 548 - i * 3),
+          };
+        }),
+      };
+    }
+    var ns = 'http://www.w3.org/2000/svg'
+    var svg = document.createElementNS(ns, 'svg')
+    svg.setAttribute('class', 'dsu-reference-scan')
+    svg.setAttribute('viewBox', '0 0 1920 1080')
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+    svg.setAttribute('aria-hidden', 'true')
+    var group = document.createElementNS(ns, 'g')
+    group.setAttribute('fill', 'none')
+    group.setAttribute('stroke', 'var(--dsu-ink)')
+    group.setAttribute('stroke-width', '2')
+    group.setAttribute('stroke-linecap', 'round')
+    svg.appendChild(group)
+    var paths = []
+    for (var i = 0; i < 6; i++) {
+      var path = document.createElementNS(ns, 'path')
+      if (i === 1) path.setAttribute('stroke', 'var(--dsu-box-ink)')
+      group.appendChild(path)
+      paths.push(path)
+    }
+    function circle(cls, color) {
+      var node = document.createElementNS(ns, 'circle')
+      node.setAttribute('class', cls)
+      node.setAttribute('fill', color)
+      node.setAttribute('stroke', 'none')
+      group.appendChild(node)
+      return node
+    }
+    var orbitDots = [circle('dsu-reference-orbit', 'var(--dsu-accent)'), circle('dsu-reference-orbit', 'var(--dsu-accent)')]
+    var satellites = []
+    for (var j = 0; j < 6; j++) satellites.push(circle('dsu-reference-satellite', 'var(--dsu-ink)'))
+    var core = circle('dsu-reference-core', 'var(--dsu-ink)')
+    core.setAttribute('cx', '959.5'); core.setAttribute('cy', '539.5')
+    var caps = [circle('dsu-reference-cap', 'var(--dsu-ink)'), circle('dsu-reference-cap', 'var(--dsu-box-ink)')]
+    ui.reticle.appendChild(svg)
+    var request = 0
+
+    function arc(r, start, sweep, x, y) {
+      x = x == null ? 960 : x; y = y == null ? 540 : y
+      function point(angle) { return (x + Math.cos(angle) * r) + ',' + (y + Math.sin(angle) * r) }
+      if (sweep >= Math.PI * 1.999)
+        return 'M' + point(start) + 'A' + r + ',' + r + ' 0 1 1 ' + point(start + Math.PI) + 'A' + r + ',' + r + ' 0 1 1 ' + point(start + Math.PI * 2)
+      return 'M' + point(start) + 'A' + r + ',' + r + ' 0 ' + (sweep > Math.PI ? 1 : 0) + ' 1 ' + point(start + sweep)
+    }
+    function draw(frame) {
+      var scan = scanTrack(frame), orbit = scanOrbitTrack(frame)
+      var sourceFrame = Math.floor(frame + 0.00001)
+      var flash = [525, 526, 528, 529].includes(sourceFrame)
+      var scale = flash ? 1.94 : 1
+      group.setAttribute('transform', 'translate(960 540) scale(' + scale + ') translate(-960 -540)')
+      group.style.opacity = String(flash ? 0.32 : track([[487,0],[488,0.18],[490,0.6],[493,1]], frame))
+      group.style.filter = flash ? 'blur(2.2px)' : 'none'
+      paths[0].setAttribute('d', arc(scan.radius, scan.outerStart, scan.outerSweep))
+      paths[0].setAttribute('stroke-width', '2.4')
+      paths[1].setAttribute('d', arc(scan.whiteRadius, scan.whiteStart, scan.whiteSweep))
+      paths[1].setAttribute('stroke-width', '4')
+      paths[2].setAttribute('d', arc(scan.innerRadius, scan.innerStart, scan.innerSweep))
+      paths[3].setAttribute('d', arc(scan.innerRadius, scan.innerStart + Math.PI, scan.innerSweep))
+      orbit.sides.forEach(function (side, n) {
+        paths[n + 4].setAttribute('d', arc(side.radius, side.start, side.sweep, side.x, side.y))
+        paths[n + 4].style.opacity = orbit.sideVisible ? '1' : '0'
+      })
+      orbit.satellites.forEach(function (point, n) {
+        satellites[n].setAttribute('cx', String(point.x)); satellites[n].setAttribute('cy', String(point.y))
+        satellites[n].setAttribute('r', String(point.radius))
+      })
+      core.style.opacity = frame >= 546 ? '1' : '0'
+      core.setAttribute('r', String(orbit.coreRadius))
+      orbitDots.forEach(function (dot, n) {
+        var angle = scan.orbit + n * Math.PI
+        dot.setAttribute('cx', String(960 + Math.cos(angle) * scan.orbitRadius))
+        dot.setAttribute('cy', String(540 + Math.sin(angle) * scan.orbitRadius))
+        dot.setAttribute('r', String(scan.dotRadius))
+      })
+      caps.forEach(function (cap, n) {
+        var angle = n ? scan.whiteStart : scan.outerStart + scan.outerSweep
+        var radius = n ? scan.whiteRadius : scan.radius
+        cap.setAttribute('cx', String(960 + Math.cos(angle) * radius))
+        cap.setAttribute('cy', String(540 + Math.sin(angle) * radius))
+        cap.setAttribute('r', String(n ? scan.whiteCap : scan.blackCap))
+      })
+      var textOpacity = frame < 545 ? Math.max(0, Math.min(1, (frame - 487) / 10)) :
+        track([[545,1],[546,0.4],[547,0.3],[548,0.25],[549,0.1],[550,0.04],[551,0]], frame)
+      ui.center.style.opacity = String(textOpacity)
+    }
+    function stop() {
+      if (request) cancelAnimationFrame(request)
+      request = 0
+      ui.center.style.removeProperty('opacity')
+    }
+    function start() {
+      stop()
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        draw(520)
+        return
+      }
+      var started = performance.now()
+      draw(487)
+      function tick(now) {
+        if (finished || skipped || stale()) return
+        var frame = Math.min(568, 487 + (now - started) * C.speed * 15 / 1000)
+        draw(frame)
+        if (frame < 568) request = requestAnimationFrame(tick)
+        else request = 0
+      }
+      request = requestAnimationFrame(tick)
+    }
+    return { start: start, stop: stop }
+  })() : null
+
   /* ── 时间线引擎 ───────────────────────────────────────────────────────── */
   var timers = []
   var waiters = []
   var skipped = false
   var finished = false
   var hexTimer = null
+  var sequenceReady = Promise.resolve()
 
   function ms(base) { return Math.round(base / C.speed) }
 
@@ -788,7 +1348,7 @@
         resolve()
       }
       function onKey(e) {
-        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); fin() }
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); if (!e.repeat) fin() }
       }
       function onClick(e) { e.preventDefault(); fin() }
       function cleanup() {
@@ -1313,22 +1873,29 @@
     chromeSync.hide()
     return Promise.resolve()
       /* 第一幕：黑幕 --> DeepSeek 标识 */
-      .then(function () { return wait(820) })
       .then(function () {
+        if (finished || skipped || stale()) return
+        return wait(820)
+      })
+      .then(function () {
+        if (finished || skipped || stale()) return
         ui.blackInner.classList.add('dsu-in')
         audio.rise()
         return wait(240)
       })
       .then(function () {
+        if (finished || skipped || stale()) return
         ui.blackEn.classList.add('dsu-tighten')
         return wait(880)
       })
       .then(function () {
+        if (finished || skipped || stale()) return
         ui.sweep.classList.add('dsu-go')
         return wait(760)
       })
       /* 过场：过曝洗白 */
       .then(function () {
+        if (finished || skipped || stale()) return
         ui.blackInner.classList.add('dsu-out')
         audio.sweep()
         ui.wash.style.transition = 'opacity ' + ms(220) + 'ms linear'
@@ -1336,6 +1903,7 @@
         return wait(260)
       })
       .then(function () {
+        if (finished || skipped || stale()) return
         ui.plate.style.transition = 'opacity ' + ms(900) + 'ms ease'
         ui.plate.style.opacity = '1'
         ui.watermark.style.transition = 'opacity ' + ms(1100) + 'ms ease'
@@ -1348,6 +1916,7 @@
       })
       /* 第二幕：品牌块 / 页脚 / 进度条 */
       .then(function () {
+        if (finished || skipped || stale()) return
         ui.brand.classList.add('dsu-in')
         ui.foot.classList.add('dsu-in')
         ui.stepcount.classList.add('dsu-in')
@@ -1364,11 +1933,21 @@
         if (C.allowSkip) ui.skip.classList.add('dsu-in')
         return wait(700)
       })
-      .then(function () { ui.black.style.display = 'none'; sweep() })
+      .then(function () {
+        if (finished || skipped || stale()) return
+        ui.black.style.display = 'none'
+        sweep()
+      })
       /* 六个阶段 */
-      .then(function () { return stepLoop() })
+      .then(function () {
+        if (finished || skipped || stale()) return
+        return stepLoop()
+      })
       /* 终幕 */
-      .then(function () { return finale() })
+      .then(function () {
+        if (finished || skipped || stale()) return
+        return finale()
+      })
       .catch(function (err) {
         try { console.warn('[dsh-startup-screen] 动画异常，直接揭幕：', err) } catch (e2) {}
         return finish()
@@ -1408,15 +1987,30 @@
         })
         ui.rule.classList.add('dsu-in')
 
-        if (step.assembleLogo && !window.__CODEX_STAGED__) assembleLogo()
-        if (step.reticle || (window.__CODEX_STAGED__ && i >= 2)) {
-          /* 照原片：准星出现时中央只留状态字，鲸鱼标识和虚线收掉，别挤成一团 */
+        if (step.assembleLogo) {
+          if (window.__CODEX_STAGED__) {
+            root.classList.add('dsu-processing', 'dsu-first-processing')
+            ui.sequenceLogo.classList.add('dsu-in')
+            sequenceReady = wait(5200)
+          } else assembleLogo()
+        }
+        if (step.reticle) {
+          root.classList.remove('dsu-processing', 'dsu-first-processing')
+          if (window.__CODEX_STAGED__) {
+            root.classList.add('dsu-verified')
+            ui.scanline.classList.remove('dsu-go')
+            referenceScan.start()
+          }
+          ui.sequenceLogo.classList.remove('dsu-in')
           ui.logo.classList.remove('dsu-in')
           ui.dots.hidden = true
           ui.reticle.classList.add('dsu-in')
-          sweep()
+          if (!window.__CODEX_STAGED__) sweep()
         }
-        if (step.hex) startHex()
+        if (step.hex) {
+          if (window.__CODEX_STAGED__) audio.tickRun()
+          else startHex()
+        }
 
         /* 这一步停多久 = max(视觉基准, 实际播报时长 + 收尾留白) —— 台词长就多停，
            台词短也不会干等。用户点得快时同样等这一句念完，不掐断。 */
@@ -1428,20 +2022,20 @@
         if (step.action === 'grant' || step.action === 'confirm') {
           showAction(step)
           return wait(520).then(function () {
+            if (finished || skipped || stale()) return
             if (step.action === 'confirm' && window.__CODEX_WAIT_ACCOUNT__) {
               disarmStall()
-              ui.btn.disabled = true
-              ui.btn.title = '正在读取账户资料；此阶段不会启动 Codex 桌面'
-              ui.hint.textContent = '正在读取本机账户资料…'
-              return window.__CODEX_WAIT_ACCOUNT__().then(function () {
-                if (finished || skipped || stale()) return
-                ui.btn.disabled = false
-                ui.btn.title = ''
-                ui.hint.textContent = '核对账户后确认，进入 Codex 加载画面'
-                return waitAction()
-              })
+              return window.__CODEX_WAIT_ACCOUNT__()
             }
+          }).then(function () {
+            if (finished || skipped || stale()) return
+            ui.card.classList.add('dsu-ready')
+            ui.hint.classList.remove('dsu-pending')
+            ui.hint.classList.add('dsu-ready')
+            ui.hint.firstElementChild.setAttribute('aria-hidden', 'true')
+            ui.hint.lastElementChild.setAttribute('aria-hidden', 'false')
             ui.btn.disabled = false
+            ui.btn.classList.add('dsu-pulse')
             return waitAction()
           }).then(function () {
             if (finished || skipped || stale()) return
@@ -1451,16 +2045,18 @@
             audio.confirm()
             ui.caret.classList.remove('dsu-on')
             return spoke
-          }).then(function () { return wait(ms(320)) })
+          }).then(function () { return wait(320) })
         }
         if (step.hex) {
           return spoke.then(holdFor).then(function () {
             if (window.__CODEX_START_DESKTOP__ && !finished && !skipped) {
               disarmStall()
-              return window.__CODEX_START_DESKTOP__()
+              return Promise.all([window.__CODEX_START_DESKTOP__(), sequenceReady])
             }
           }).then(function () { stopHex() })
         }
+        if (window.__CODEX_STAGED__ && step.assembleLogo) return Promise.all([spoke.then(holdFor), wait(2300)])
+        if (window.__CODEX_STAGED__ && step.reticle) return Promise.all([spoke.then(holdFor), wait(5540)])
         return spoke.then(holdFor)
       })
     })
@@ -1495,66 +2091,77 @@
   }
 
   var accountInfo = null
+  var identityCode = '----'
+  var accountRevealed = false
 
   function setAccount(info) {
     accountInfo = info
-    ui.w4.textContent = '欢迎访问'
-    ui.idline.textContent = '· ACCOUNT : ----'
+    identityCode = '----'
+    if (info.status === 'ready') {
+      // Display codes are decorative plan markers, not real account identifiers.
+      switch ((info.planLabel || '').toLowerCase().replace(/[-_ ]/g, '')) {
+        case 'plus': identityCode = 'L-01x'; break
+        case 'prolite': case 'pro100': identityCode = 'H-10x'; break
+        case 'pro': case 'pro200': identityCode = 'M-20x'; break
+        case 'promax': case 'pro500': identityCode = 'U-50x'; break
+      }
+    }
+    ui.w4.textContent = '欢迎 ---- 访问'
+    ui.idline.textContent = '· ID CONFIRMED : ' + (accountRevealed ? identityCode : '----')
     if (info.status === 'ready') {
       if (info.emailMasked) ui.w4.textContent = '欢迎 ' + info.emailMasked + ' 访问'
-      ui.idline.textContent = '· ' + (info.authLabel || '----').toUpperCase() + ' : ' + (info.planLabel || '----').toUpperCase()
     }
     if (!ui.card.hidden) renderIdentityCard()
   }
 
   function renderIdentityCard() {
-    ui.card.innerHTML = ''
-    ui.card.style.position = 'relative'
     var rows = [
-      ['登录账户', '----', true],
-      ['认证方式', '----', false],
-      ['账户套餐', '----', false]
+      ['身份名称', accountInfo && accountInfo.status === 'ready' ? accountInfo.emailMasked || '----' : '----', true],
+      ['身份编号', identityCode, false],
+      ['权限等级', accountInfo && accountInfo.status === 'ready' ? 'user' : '----', false]
     ]
-    var note = ''
-    if (accountInfo && accountInfo.status === 'ready') {
-      rows = [
-        ['登录账户', accountInfo.emailMasked || '----', true],
-        ['认证方式', accountInfo.authLabel || '----', false],
-        ['账户套餐', accountInfo.planLabel || '----', false]
-      ]
-      note = '来源：Codex 认证账户'
-    } else if (accountInfo) {
-      note = (accountInfo.reason || '未读取到账户资料') + ' · 可继续打开 Codex'
-    } else if (!accountInfo && window.__CODEX_WAIT_ACCOUNT__) {
-      rows = [['登录账户', '读取中…', true], ['认证方式', '—', false], ['账户套餐', '—', false]]
-      note = '正在读取 Codex 账户资料'
+    if (!ui.card.children.length) {
+      rows.forEach(function (r) {
+        var row = el('div', 'dsu-card-row')
+        row.appendChild(el('span', null, r[0]))
+        row.appendChild(el('b', r[2] ? 'dsu-zhname' : null, r[1]))
+        ui.card.appendChild(row)
+      })
     }
-    rows.forEach(function (r) {
-      var row = el('div', 'dsu-card-row')
-      row.appendChild(el('span', null, r[0]))
-      row.appendChild(el('b', r[2] ? 'dsu-zhname' : null, r[1]))
-      ui.card.appendChild(row)
+    rows.forEach(function (r, i) {
+      var value = ui.card.children[i].children[1]
+      if (value.textContent !== r[1]) value.textContent = r[1]
     })
-    if (note) {
-      var status = el('div', 'dsu-account-note', note)
-      status.style.cssText = 'position:absolute;bottom:calc(100% + 8px);left:0;font-size:11px;opacity:.65;letter-spacing:0;white-space:nowrap'
-      ui.card.appendChild(status)
-    }
   }
 
   function showAction(step) {
     ui.btn.disabled = true
+    ui.btn.title = ''
     ui.btnZh.textContent = step.btnZh
     ui.btnEn.textContent = step.btnEn
+    ui.card.classList.remove('dsu-ready')
     ui.card.hidden = step.action !== 'confirm'
-    if (step.action === 'confirm') renderIdentityCard()
-    ui.hint.innerHTML = '按 <kbd>Enter</kbd> / <kbd>Space</kbd>，或点击按钮继续'
+    if (step.action === 'confirm') {
+      accountRevealed = true
+      ui.idline.textContent = '· ID CONFIRMED : ' + identityCode
+      renderIdentityCard()
+    }
+    ui.hint.classList.remove('dsu-ready')
+    var pending = step.action === 'confirm' && !!window.__CODEX_WAIT_ACCOUNT__
+    ui.hint.classList.toggle('dsu-pending', pending)
+    ui.hint.removeAttribute('aria-hidden')
+    ui.hint.innerHTML = '<span class="dsu-hint-wait" aria-hidden="' + !pending + '"></span>' +
+      '<span class="dsu-hint-ready" aria-hidden="true">按 <kbd>Enter</kbd> / <kbd>Space</kbd>，或点击按钮继续</span>'
+    ui.hint.firstElementChild.textContent = step.log
+    void ui.action.offsetWidth
     ui.action.classList.add('dsu-in')
-    ui.btn.classList.add('dsu-pulse')
   }
 
   function hideAction() {
     ui.action.classList.remove('dsu-in')
+    ui.card.classList.remove('dsu-ready')
+    ui.hint.classList.remove('dsu-ready', 'dsu-pending')
+    ui.hint.setAttribute('aria-hidden', 'true')
     ui.btn.classList.remove('dsu-pulse')
   }
 
@@ -1565,7 +2172,7 @@
     setSlats(6)
     setProgress(1)
     /* 底部日志和终幕里的「欢迎 xxx 访问」区分开，避免同一句出现两遍 */
-    setSubtitle('Codex 已准备就绪', 'CONVERSATION READY')
+    setSubtitle('身份验证完成，会话已建立', 'IDENTITY VERIFIED · SESSION ESTABLISHED')
     audio.chime()
     /* 终幕欢迎语：自制落幕词素材 line-6（3.73 秒），在欢迎文案亮起的同一刻开念。
        素材缺失 / voiceSource=tts / voice 关闭时静音（调用时 en、zh 都传 null，不会念出合成腔）。 */
@@ -1574,7 +2181,8 @@
     ui.status.classList.remove('dsu-in')
     ui.subEn.classList.remove('dsu-in')
     ui.rule.classList.remove('dsu-in')
-    ui.reticle.classList.remove('dsu-in')
+    if (!window.__CODEX_STAGED__) ui.reticle.classList.remove('dsu-in')
+    if (referenceScan) referenceScan.stop()
     stopHex()
     /* 中央区（状态行/分隔线/鲸鱼/虚线）整体退场：不清掉会和 WELCOME 版式叠字 */
     ui.center.classList.add('dsu-off')
@@ -1582,26 +2190,30 @@
 
     return wait(360)
       .then(function () {
+        if (finished || skipped || stale()) return
+        if (window.__CODEX_STAGED__) ui.reticle.classList.remove('dsu-in')
         ui.welcome.classList.add('dsu-in')
         ui.idline.classList.remove('dsu-in')
         /* 欢迎文案亮起的同一刻开口 —— 早于画面会让人以为「话没说完画面就跳了」 */
         welcome = voice.line(null, null, 'line-6')
-        return wait(420)
+        return wait(2500)
       })
       .then(function () {
+        if (finished || skipped || stale()) return
         /* 结尾色散故障：分片位移 + 0.5px 模糊 + 混合模式，读起来像镜头色散 */
         var targets = [ui.w1, ui.w2, ui.w4]
         targets.forEach(function (t) {
           t.classList.add('dsu-glitch')
-          t.setAttribute('data-text', t.textContent)
+          t.setAttribute('data-text', t === ui.w2 ? ui.w2Base.textContent : t.textContent)
         })
         ui.w2.classList.add('dsu-glitch-box')   /* 黑底白字那块换加色混合 */
         void ui.welcome.offsetWidth
         targets.forEach(function (t) { t.classList.add('dsu-on') })
-        return wait(640)
+        return wait(360)
       })
       /* 光晕从中心炸开 + 变形光条横扫 + 文字青色 halation */
       .then(function () {
+        if (finished || skipped || stale()) return
         root.classList.add('dsu-peak')
         ui.bloom.classList.add('dsu-go')
         ui.streak.classList.add('dsu-go')
@@ -1609,24 +2221,33 @@
       })
       /* 光晕最亮那一下补一记极短高光（是"眨一下"，不是长时间糊白） */
       .then(function () {
+        if (finished || skipped || stale()) return
         ui.flash.style.transition = 'opacity ' + ms(70) + 'ms linear'
         ui.flash.style.opacity = '0.72'
         return wait(90)
       })
       .then(function () {
+        if (finished || skipped || stale()) return
         ui.flash.style.transition = 'opacity ' + ms(340) + 'ms cubic-bezier(0.4, 0, 0.2, 1)'
         ui.flash.style.opacity = '0'
         return wait(320)
       })
       /* 欢迎语没播完就不揭幕（素材缺失时这个 Promise 立刻 resolve，不影响节奏） */
-      .then(function () { return welcome })
+      .then(function () {
+        if (finished || skipped || stale()) return
+        return welcome
+      })
       /* 揭幕：整个机位后撤 + 轻微失焦，比单纯淡出更有镜头感 */
       .then(function () {
+        if (finished || skipped || stale()) return
         if (window.__CODEX_NATIVE_HANDOFF__) return finish()
         root.classList.add('dsu-handoff')
         return wait(780)
       })
-      .then(function () { return finish() })
+      .then(function () {
+        if (finished || skipped || stale()) return
+        return finish()
+      })
   }
 
   function finish() {
@@ -1638,6 +2259,7 @@
     chromeSync.show()
     releaseAll()
     stopHex()
+    if (referenceScan) referenceScan.stop()
     voice.stop()
     if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
     if (window.__CODEX_NATIVE_HANDOFF__ && window.__CODEX_NATIVE_HANDOFF__()) return
@@ -1667,14 +2289,24 @@
     if (window.__CODEX_START_DESKTOP__) {
       disarmStall()
       hideAction()
+      voice.stop()
+      stopHex()
+      if (referenceScan) referenceScan.stop()
+      ui.black.style.display = 'none'
+      ui.wash.style.opacity = '0'
+      ui.plate.style.opacity = '1'
+      ui.watermark.style.opacity = '1'
+      ui.welcome.classList.remove('dsu-in')
       ui.center.classList.remove('dsu-off')
+      root.classList.remove('dsu-processing', 'dsu-first-processing', 'dsu-verified')
+      ui.sequenceLogo.classList.remove('dsu-in')
       ui.logo.classList.remove('dsu-in')
       ui.dots.hidden = true
       ui.reticle.classList.add('dsu-in')
-      ui.statusZh.textContent = '正在加载 Codex'
+      ui.statusZh.textContent = STEPS[3].zh
       ui.status.classList.add('dsu-in')
-      ui.subEn.textContent = 'PREPARING CONVERSATION'
-      setSubtitle('等待会话输入框准备完成…', 'WAITING FOR CONVERSATION')
+      ui.subEn.textContent = STEPS[3].en
+      setSubtitle(STEPS[3].log, STEPS[3].logEn)
       window.__CODEX_START_DESKTOP__().then(function () { finish() })
       return
     }

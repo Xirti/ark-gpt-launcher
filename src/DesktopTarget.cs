@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 
 internal interface IDesktopTarget
 {
@@ -37,15 +38,26 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
             return ReadBounds(window);
         }
     }
-    public async Task<Rectangle> PrepareAsync(CancellationToken cancellation)
+    public Task<Rectangle> PrepareAsync(CancellationToken cancellation)
+    { return PrepareAsync(cancellation, null); }
+
+    internal async Task<Rectangle> PrepareAsync(CancellationToken cancellation, Rectangle? previousReadyBounds)
     {
+        cancellation.ThrowIfCancellationRequested();
         if (!deferTimeout) BeginWaiting();
         IntPtr notifiedWindow = IntPtr.Zero;
+        Rectangle? notifiedBounds = null;
+        var notificationContext = SynchronizationContext.Current;
+        bool observerStopped = false, notificationPending = false;
+        IntPtr pendingWindow = IntPtr.Zero;
         Exception windowFailure = null;
         Action<IntPtr> notify = delegate(IntPtr candidate) {
+            Rectangle? bounds = ReadBounds(candidate);
             window = candidate;
+            if (notifiedWindow == candidate && notifiedBounds == bounds) return;
             notifiedWindow = candidate;
-            if (WindowAvailable != null) WindowAvailable(candidate, ReadBounds(candidate));
+            notifiedBounds = bounds;
+            if (WindowAvailable != null) WindowAvailable(candidate, bounds);
         };
         // Observe creation/show/geometry before activation, instead of waiting for the
         // next polling tick after Codex has already appeared in front of the overlay.
@@ -54,26 +66,56 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
             if (objectId != 0 || childId != 0 || windowFailure != null ||
                 (kind != 0x8000 && kind != 0x8002 && kind != 0x800B)) return;
             if (!IsTargetWindow(candidate, 0, false)) return;
-            try { notify(candidate); }
-            catch (Exception error) { windowFailure = error; } // Report at the async host boundary.
+            if (candidate != window && IsTargetWindow(window, 0, true)) return;
+            pendingWindow = candidate;
+            if (notificationPending) return;
+            notificationPending = true;
+            // Leave the native callback before touching WinForms. Coalesce queued
+            // events and read geometry in the UI context, without native reentrancy.
+            notificationContext.Post(delegate {
+                notificationPending = false;
+                if (observerStopped || cancellation.IsCancellationRequested || windowFailure != null) return;
+                try {
+                    if (pendingWindow != window && IsTargetWindow(window, 0, true)) return;
+                    if (IsTargetWindow(pendingWindow, 0, false)) notify(pendingWindow);
+                }
+                catch (Exception error) { windowFailure = error; } // Report at the async host boundary.
+            }, null);
         };
-        var observerRoot = GCHandle.Alloc(observer);
-        IntPtr subscription = SetWinEventHook(0x8000, 0x800B, IntPtr.Zero, observer, 0, 0, 2);
-        if (subscription == IntPtr.Zero)
+        GCHandle observerRoot = default(GCHandle);
+        IntPtr subscription = IntPtr.Zero;
+        // Native event subscriptions must be removed on their registration thread.
+        // Only use them with the WinForms UI context; console callers use polling.
+        if (notificationContext is WindowsFormsSynchronizationContext)
         {
-            observerRoot.Free();
-            throw new Win32Exception(Marshal.GetLastWin32Error());
+            observerRoot = GCHandle.Alloc(observer);
+            subscription = SetWinEventHook(0x8000, 0x800B, IntPtr.Zero, observer, 0, 0, 2);
+            if (subscription == IntPtr.Zero)
+            {
+                int error = Marshal.GetLastWin32Error();
+                observerRoot.Free();
+                throw new Win32Exception(error);
+            }
         }
         try
         {
+            IntPtr previousReadyWindow = window;
             window = FindWindow(0);
             if (window != IntPtr.Zero) notify(window);
-            uint processId = await Task.Run(() => LauncherWindow.ActivateCodex(appId), cancellation);
-            Rectangle lastBounds = Rectangle.Empty;
-            DateTime stableSince = DateTime.UtcNow;
-            DateTime composerSince = DateTime.MinValue;
-            IntPtr previousWindow = IntPtr.Zero;
+            uint processId;
+            if (window != IntPtr.Zero && !IsIconic(window)) GetWindowThreadProcessId(window, out processId);
+            else processId = await Task.Run(() => LauncherWindow.ActivateCodex(appId), cancellation);
+            // A handoff recheck always probes the live composer again. Preserve
+            // only the prior settling period for the same window and geometry;
+            // any negative probe or window/bounds change restores normal settling.
+            bool rechecking = previousReadyBounds.HasValue && window != IntPtr.Zero && window == previousReadyWindow;
+            Rectangle lastBounds = rechecking ? previousReadyBounds.Value : Rectangle.Empty;
+            DateTime stableSince = rechecking ? DateTime.UtcNow.AddMilliseconds(-900) : DateTime.UtcNow;
+            DateTime composerSince = rechecking ? stableSince : DateTime.MinValue;
+            IntPtr previousWindow = rechecking ? window : IntPtr.Zero;
             Task<bool> conversationProbe = null;
+            IntPtr probeWindow = IntPtr.Zero;
+            int readinessVersion = 0, probeVersion = -1;
             while (!HasTimedOut)
             {
                 cancellation.ThrowIfCancellationRequested();
@@ -86,47 +128,82 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
                     previousWindow = window;
                     stableSince = DateTime.UtcNow;
                     composerSince = DateTime.MinValue;
-                    conversationProbe = null;
+                    lastBounds = Rectangle.Empty;
+                    readinessVersion++;
                 }
-                RECT rectangle;
-                UIntPtr response;
-                if (window != IntPtr.Zero && GetWindowRect(window, out rectangle) &&
-                    SendMessageTimeout(window, 0, UIntPtr.Zero, IntPtr.Zero, 2, 150, out response) != IntPtr.Zero)
+                IntPtr observedWindow = window;
+                RECT rectangle = default(RECT);
+                bool usable = observedWindow != IntPtr.Zero && !IsIconic(observedWindow) &&
+                    GetWindowRect(observedWindow, out rectangle);
+                if (usable)
                 {
                     var bounds = Rectangle.FromLTRB(rectangle.Left, rectangle.Top, rectangle.Right, rectangle.Bottom);
                     if (bounds.Width >= 400 && bounds.Height >= 300)
                     {
-                        if (bounds != lastBounds) { lastBounds = bounds; stableSince = DateTime.UtcNow; }
+                        if (bounds != lastBounds)
+                        {
+                            lastBounds = bounds;
+                            stableSince = DateTime.UtcNow;
+                            composerSince = DateTime.MinValue;
+                            readinessVersion++;
+                        }
                         // A responsive shell alone is insufficient: wait for the composer too.
-                        if ((DateTime.UtcNow - stableSince).TotalMilliseconds >= 900)
+                        // Preload warms the app and tracks its owner, but readiness is
+                        // evaluated only when the account confirmation requests it.
+                        if ((!deferTimeout || waitClock != null) &&
+                            (DateTime.UtcNow - stableSince).TotalMilliseconds >= 900)
                         {
                             if (conversationProbe == null)
                             {
-                                IntPtr candidate = window;
-                                conversationProbe = Task.Run(() => ConversationReadiness.IsReady(candidate));
+                                IntPtr candidate = observedWindow;
+                                probeWindow = candidate;
+                                probeVersion = readinessVersion;
+                                // A hung target must not block the launcher's UI thread.
+                                // Keep the responsiveness check in the single bounded
+                                // readiness probe, which starts only after confirmation.
+                                conversationProbe = Task.Run(() => {
+                                    UIntPtr response;
+                                    return SendMessageTimeout(candidate, 0, UIntPtr.Zero, IntPtr.Zero, 2, 150, out response) != IntPtr.Zero &&
+                                        ConversationReadiness.IsReady(candidate);
+                                });
                             }
                             if (conversationProbe.IsCompleted)
                             {
-                                if (await conversationProbe)
-                                {
-                                    if (composerSince == DateTime.MinValue) composerSince = DateTime.UtcNow;
-                                    if ((DateTime.UtcNow - composerSince).TotalMilliseconds >= 900) return bounds;
-                                }
-                                else composerSince = DateTime.MinValue;
+                                bool available = await conversationProbe;
                                 conversationProbe = null;
+                                if (probeVersion == readinessVersion && probeWindow == window)
+                                {
+                                    if (available)
+                                    {
+                                        if (composerSince == DateTime.MinValue) composerSince = DateTime.UtcNow;
+                                        if ((DateTime.UtcNow - composerSince).TotalMilliseconds >= 900) return bounds;
+                                    }
+                                    else composerSince = DateTime.MinValue;
+                                }
                             }
                         }
                     }
+                    else usable = false;
                 }
-                else { stableSince = DateTime.UtcNow; composerSince = DateTime.MinValue; lastBounds = Rectangle.Empty; }
+                if (!usable)
+                {
+                    stableSince = DateTime.UtcNow;
+                    composerSince = DateTime.MinValue;
+                    if (lastBounds != Rectangle.Empty) readinessVersion++;
+                    lastBounds = Rectangle.Empty;
+                }
                 await Task.Delay(window == IntPtr.Zero ? 40 : 350, cancellation);
             }
             throw new TimeoutException("确认账户后等待 " + waitSeconds + " 秒仍未检测到 Codex 会话输入框。可继续等待，或退出启动器直接查看 Codex。");
         }
         finally
         {
-            if (!UnhookWinEvent(subscription)) throw new Win32Exception(Marshal.GetLastWin32Error());
-            observerRoot.Free();
+            observerStopped = true;
+            if (subscription != IntPtr.Zero)
+            {
+                if (!UnhookWinEvent(subscription)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                observerRoot.Free();
+            }
         }
     }
 
@@ -140,6 +217,7 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
 
     private IntPtr FindWindow(uint activatedProcessId)
     {
+        if (IsTargetWindow(window, activatedProcessId, true)) return window;
         IntPtr found = IntPtr.Zero;
         EnumWindows(delegate(IntPtr candidate, IntPtr parameter)
         {
@@ -152,7 +230,9 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
 
     private bool IsTargetWindow(IntPtr candidate, uint activatedProcessId, bool requireVisible)
     {
-        if (candidate == IntPtr.Zero || (requireVisible && !IsWindowVisible(candidate)) ||
+        if (candidate == IntPtr.Zero || GetAncestor(candidate, 2) != candidate ||
+            (GetWindowLongPtr(candidate, -20).ToInt64() & 0x80) != 0 ||
+            (requireVisible && !IsWindowVisible(candidate)) ||
             GetWindow(candidate, 4) != IntPtr.Zero) return false;
         var className = new StringBuilder(128);
         GetClassName(candidate, className, className.Capacity);
@@ -198,6 +278,8 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
+    [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder name, int capacity);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out RECT rectangle);

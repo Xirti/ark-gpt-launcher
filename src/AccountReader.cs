@@ -79,20 +79,33 @@ internal sealed class CodexAccountReader : IAccountReader
             catch (Exception)
             {
                 cancellation.ThrowIfCancellationRequested();
-                // Non-critical UI boundary: report failure explicitly and allow manual identity.
+                // Non-critical UI boundary: report failure explicitly without inventing identity.
                 return new AccountInfo { status = "unavailable", reason = "无法读取 Codex 账户" };
             }
             finally
             {
-                lock (processGate)
+                try
                 {
-                    if (started && !server.HasExited)
+                    if (started)
                     {
-                        server.StandardInput.Close();
-                        if (!server.WaitForExit(500)) StopProcess(server);
+                        lock (processGate)
+                        {
+                            if (!server.HasExited)
+                            {
+                                if (disposed || timeout.IsCancellationRequested) StopProcess(server);
+                                else server.StandardInput.Close();
+                            }
+                        }
+                        // Wait on the account worker, outside the lock used by the UI
+                        // to stop this child immediately when the launcher closes.
+                        if (!server.WaitForExit(500))
+                        {
+                            lock (processGate) StopProcess(server);
+                            if (!server.WaitForExit(2000)) throw new IOException("Account app-server did not exit");
+                        }
                     }
-                    if (activeProcess == server) activeProcess = null;
                 }
+                finally { lock (processGate) { if (activeProcess == server) activeProcess = null; } }
             }
         }
     }
@@ -111,17 +124,17 @@ internal sealed class CodexAccountReader : IAccountReader
         if (process.HasExited) return;
         try { process.Kill(); }
         catch (InvalidOperationException) { if (!process.HasExited) throw; }
-        process.WaitForExit(2000);
     }
 
     private static async Task<Dictionary<string, object>> ReadResponse(Process server, int requestId, CancellationToken cancellation)
     {
         var json = new JavaScriptSerializer();
+        var cancelled = Task.Delay(Timeout.Infinite, cancellation);
         while (true)
         {
             cancellation.ThrowIfCancellationRequested();
             var lineTask = server.StandardOutput.ReadLineAsync();
-            if (await Task.WhenAny(lineTask, Task.Delay(Timeout.Infinite, cancellation)) != lineTask)
+            if (await Task.WhenAny(lineTask, cancelled) != lineTask)
                 cancellation.ThrowIfCancellationRequested();
             string line = await lineTask;
             if (line == null) throw new IOException("App-server closed its output");

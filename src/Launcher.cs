@@ -84,16 +84,20 @@ internal sealed class LauncherWindow : Form
     private readonly LauncherSettings settings;
     private readonly WebView2 web = new WebView2();
     private bool closing;
-    private bool handedOff;
+    private enum HandoffPhase { Idle, WaitingForDesktop, Retiring }
+    private HandoffPhase handoffPhase;
     private bool browserReady;
+    private bool animationFailureShown;
     private readonly CancellationTokenSource lifetime = new CancellationTokenSource();
     private Task<Rectangle> desktopReady;
+    private TaskCompletionSource<Rectangle> handoffReady = new TaskCompletionSource<Rectangle>();
     private Task<AccountInfo> accountReady;
     private bool desktopRequested;
     private Exception desktopFailure;
+    private bool desktopFailureShown;
     private bool userMoved;
     private IntPtr desktopOwner;
-
+    private RetirementWindow retirementWindow;
     internal LauncherWindow(string root, string appId, bool preview)
         : this(root, appId, preview, LauncherSettings.Read(root)) { }
 
@@ -103,8 +107,9 @@ internal sealed class LauncherWindow : Form
     {
         ((WindowsDesktopTarget)desktopTarget).WindowAvailable = delegate(IntPtr owner, Rectangle? bounds) {
             AttachDesktopOwner(owner);
-            if (!userMoved && bounds.HasValue) Bounds = bounds.Value;
-            if (WindowState != FormWindowState.Minimized && IsStartupForeground) { BringToFront(); Activate(); }
+            if (!userMoved && bounds.HasValue && Bounds != bounds.Value) Bounds = bounds.Value;
+            if (WindowState != FormWindowState.Minimized && IsStartupForeground && GetForegroundWindow() != Handle)
+            { BringToFront(); Activate(); }
         };
     }
 
@@ -142,6 +147,7 @@ internal sealed class LauncherWindow : Form
         FormClosing += delegate {
             closing = true;
             lifetime.Cancel();
+            handoffReady.TrySetCanceled();
             if (accountReader != null) accountReader.Dispose();
         };
     }
@@ -158,9 +164,9 @@ internal sealed class LauncherWindow : Form
                 "--disable-background-networking --disable-component-update --no-first-run");
             var environment = await CoreWebView2Environment.CreateAsync(null,
                 Path.Combine(root, "data", "webview2"), options);
-            if (closing) return;
+            if (closing || animationFailureShown) return;
             await web.EnsureCoreWebView2Async(environment);
-            if (closing) return;
+            if (closing || animationFailureShown) return;
             FitLayout();
             var core = web.CoreWebView2;
             core.SetVirtualHostNameToFolderMapping(HostName, Path.Combine(root, "web"),
@@ -192,9 +198,30 @@ internal sealed class LauncherWindow : Form
             { request.State = CoreWebView2PermissionState.Deny; };
             core.DownloadStarting += delegate(object sender, CoreWebView2DownloadStartingEventArgs download)
             { download.Cancel = true; };
-            core.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs navigation)
+            core.ProcessFailed += delegate(object sender, CoreWebView2ProcessFailedEventArgs failure)
             {
-                if (navigation.IsSuccess && !closing) FitLayout();
+                if (failure.ProcessFailedKind == CoreWebView2ProcessFailedKind.BrowserProcessExited ||
+                    failure.ProcessFailedKind == CoreWebView2ProcessFailedKind.RenderProcessExited) FailAnimation();
+            };
+            core.NavigationCompleted += async delegate(object sender, CoreWebView2NavigationCompletedEventArgs navigation)
+            {
+                if (navigation.IsSuccess && !closing)
+                {
+                    try
+                    {
+                        // Successful HTML navigation does not guarantee that its
+                        // required scripts loaded or initialized the native bridge.
+                        string initialized = await core.ExecuteScriptAsync(
+                            "!!window.__DSH_STARTUP_API__ && typeof window.__CODEX_START_DESKTOP__ === 'function' && " +
+                            "Array.from(document.styleSheets).some(s => s.href && new URL(s.href).pathname === '/dsh-startup/splash.css' && s.cssRules.length > 0)");
+                        if (!closing)
+                        {
+                            if (initialized != "true") FailAnimation();
+                            else FitLayout();
+                        }
+                    }
+                    catch (Exception) { if (!closing) FailAnimation(); }
+                }
                 if (!navigation.IsSuccess && !closing)
                 {
                     MessageBox.Show(this, "无法加载本地动画：" + navigation.WebErrorStatus,
@@ -204,12 +231,12 @@ internal sealed class LauncherWindow : Form
             };
             core.WebMessageReceived += OnWebMessage;
             await core.AddScriptToExecuteOnDocumentCreatedAsync("window.__CODEX_STAGED__ = true; window.__CODEX_NATIVE_MODE__ = " + (preview ? "false" : "true") + ";");
-            if (closing) return;
+            if (closing || animationFailureShown) return;
             core.Navigate(PageUrl);
         }
         catch (Exception error)
         {
-            if (closing) return;
+            if (closing || animationFailureShown) return;
             MessageBox.Show(this, "无法打开动画窗口。\n\n" + error.Message,
                 Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
             Close();
@@ -218,12 +245,14 @@ internal sealed class LauncherWindow : Form
 
     private async void OnWebMessage(object sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
-        if (closing || handedOff || e.Source != PageUrl) return;
+        if (closing || e.Source != PageUrl) return;
         try
         {
             string message = e.TryGetWebMessageAsString();
             if (message == "close-launcher") { Close(); return; }
-            if (message == "minimize-launcher")
+            if (message == "animation-error") { FailAnimation(); return; }
+            if (animationFailureShown) return;
+            if (message == "minimize-launcher" && handoffPhase != HandoffPhase.Retiring)
             {
                 userMoved = true;
                 if (preview) WindowState = FormWindowState.Minimized;
@@ -236,7 +265,7 @@ internal sealed class LauncherWindow : Form
                 }
                 return;
             }
-            if (message == "toggle-maximize-launcher")
+            if (message == "toggle-maximize-launcher" && handoffPhase != HandoffPhase.Retiring)
             {
                 userMoved = true;
                 MaximizedBounds = Screen.FromHandle(Handle).WorkingArea;
@@ -244,6 +273,7 @@ internal sealed class LauncherWindow : Form
                     ? FormWindowState.Normal : FormWindowState.Maximized;
                 return;
             }
+            if (handoffPhase != HandoffPhase.Idle) return;
             if (message == "account-request")
             {
                 if (accountReady == null)
@@ -255,13 +285,6 @@ internal sealed class LauncherWindow : Form
                 return;
             }
             if (message == "desktop-request") { StartDesktop(true); return; }
-            if (message == "animation-error")
-            {
-                MessageBox.Show(this, "动画发生错误。Codex 可能已在后台打开，可直接使用原入口。",
-                    Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                Close();
-                return;
-            }
             if (message == "animation-started")
             {
                 browserReady = true;
@@ -271,51 +294,131 @@ internal sealed class LauncherWindow : Form
                 return;
             }
             if (message != "animation-done" && message != "animation-handoff") return;
-            handedOff = true;
+            handoffPhase = HandoffPhase.WaitingForDesktop;
             if (preview)
             {
                 Text = "Codex 启动动画 · 预览完成（未启动 Codex）";
                 Close();
                 return;
             }
-            StartDesktop(true);
-            await desktopReady;
-            if (closing) return;
+            StartDesktop(true, true);
+            // A failed readiness attempt can be retried. Await the overall outcome,
+            // rather than retaining the failed attempt that opened the retry prompt.
+            await handoffReady.Task;
+            if (closing || animationFailureShown) return;
+            handoffPhase = HandoffPhase.Retiring;
+            PublishWindowState();
+            Bitmap capturedFrame;
             using (var stream = new MemoryStream())
             {
                 await web.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, stream);
-                if (closing) return;
+                if (closing || animationFailureShown) return;
                 stream.Position = 0;
-                using (var frame = Image.FromStream(stream)) BackgroundImage = new Bitmap(frame);
+                using (var image = Image.FromStream(stream)) capturedFrame = new Bitmap(image);
             }
-            BackgroundImageLayout = ImageLayout.Stretch;
-            web.Visible = false;
-            Refresh();
-            // Commit the captured animation frame before the first transparency change.
-            Marshal.ThrowExceptionForHR(DwmFlush());
-            var fade = Stopwatch.StartNew();
-            while (fade.ElapsedMilliseconds < settings.fadeMilliseconds && !closing)
+            using (capturedFrame)
+            using (var retirement = new RetirementWindow(capturedFrame, Bounds))
             {
-                double progress = Math.Min(1.0, fade.Elapsed.TotalMilliseconds / settings.fadeMilliseconds);
-                Opacity = 1.0 - progress * progress * (3.0 - 2.0 * progress);
-                await Task.Delay(16);
+                retirementWindow = retirement;
+                retirement.FormClosed += delegate {
+                    if (!closing && retirement.Alpha > 0)
+                        BeginInvoke(new Action(delegate { if (!closing) Close(); }));
+                };
+                bool wasForeground = IsStartupForeground;
+                retirement.PrepareBehind(Handle, desktopOwner);
+                if (closing || animationFailureShown) return;
+                // Keep the browser's HWND and renderer intact; hide the complete
+                // host only after the independent GDI frame is already committed.
+                Hide();
+                var fade = Stopwatch.StartNew();
+                while (!closing && !animationFailureShown)
+                {
+                    // The final delay can outlive both the fade and its window.
+                    if (retirement.IsDisposed) { Close(); return; }
+                    if (fade.ElapsedMilliseconds >= settings.fadeMilliseconds) break;
+                    double progress = Math.Min(1.0, fade.Elapsed.TotalMilliseconds / settings.fadeMilliseconds);
+                    double opacity = 1.0 - progress * progress * (3.0 - 2.0 * progress);
+                    retirement.SetAlpha((byte)Math.Round(opacity * 255));
+                    await Task.Delay(16);
+                }
+                if (closing || animationFailureShown) return;
+                bool focusDesktop = wasForeground && IsStartupForeground;
+                retirement.SetAlpha(0);
+                if (focusDesktop) desktopTarget.Focus();
+                retirementWindow = null;
             }
-            if (closing) return;
-            // Keep the overlay in front throughout the fade. Focusing its owner earlier
-            // can expose the desktop before the captured frame has finished retiring.
-            bool focusDesktop = IsStartupForeground;
-            Opacity = 0;
-            if (focusDesktop) desktopTarget.Focus();
             Close();
         }
         catch (OperationCanceledException) { /* The user closed the overlay while waiting. */ }
         catch (Exception error)
         {
-            if (closing) return;
+            if (closing || animationFailureShown) return;
             MessageBox.Show(this, "无法打开 Codex。请使用原来的 Codex 入口。\n\n" + error.Message,
                 Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
             Close();
         }
+    }
+
+    private sealed class RetirementWindow : Form
+    {
+        internal byte Alpha { get; private set; }
+        internal RetirementWindow(Image frame, Rectangle bounds)
+        {
+            AutoScaleMode = AutoScaleMode.None;
+            StartPosition = FormStartPosition.Manual;
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            ShowIcon = false;
+            DoubleBuffered = true;
+            BackColor = Color.Black;
+            BackgroundImage = frame;
+            BackgroundImageLayout = ImageLayout.Stretch;
+            Bounds = bounds;
+            // Create the GDI-only surface fully transparent. It is painted and put
+            // behind the live host before the native alpha is raised to 255.
+            Opacity = 0;
+        }
+        protected override bool ShowWithoutActivation { get { return true; } }
+        internal void PrepareBehind(IntPtr host, IntPtr owner)
+        {
+            Show();
+            if (owner != IntPtr.Zero)
+            {
+                SetLastError(0);
+                IntPtr previous = SetWindowLongPtr(Handle, -8, owner);
+                int error = Marshal.GetLastWin32Error();
+                if (previous == IntPtr.Zero && error != 0)
+                    throw new System.ComponentModel.Win32Exception(error);
+            }
+            if (!SetWindowPos(Handle, host, 0, 0, 0, 0, 0x0213)) // no move/size/activation/owner reorder
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            Refresh();
+            if (!GdiFlush()) throw new InvalidOperationException("Unable to commit the retirement frame.");
+            Marshal.ThrowExceptionForHR(DwmFlush());
+            SetAlpha(255);
+            Marshal.ThrowExceptionForHR(DwmFlush());
+        }
+        internal void SetAlpha(byte alpha)
+        {
+            if (!SetLayeredWindowAttributes(Handle, 0, alpha, 2))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            Alpha = alpha;
+        }
+    }
+
+    private void FailAnimation()
+    {
+        if (closing || animationFailureShown) return;
+        animationFailureShown = true;
+        lifetime.Cancel();
+        handoffReady.TrySetCanceled();
+        // Leave WebView's event callback before entering a modal message loop.
+        BeginInvoke(new Action(delegate {
+            if (closing) return;
+            MessageBox.Show(this, "动画发生错误。Codex 可能已在后台打开，可直接使用原入口。",
+                Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            Close();
+        }));
     }
 
     private void FitLayout()
@@ -338,25 +441,36 @@ internal sealed class LauncherWindow : Form
         if (!browserReady || closing) return;
         web.CoreWebView2.PostWebMessageAsJson(new JavaScriptSerializer().Serialize(new {
             type = "window-state", maximized = WindowState == FormWindowState.Maximized,
-            canMinimize = preview || (desktopOwner != IntPtr.Zero && IsWindow(desktopOwner)),
+            canMinimize = handoffPhase != HandoffPhase.Retiring &&
+                (preview || (desktopOwner != IntPtr.Zero && IsWindow(desktopOwner))),
+            canMaximize = handoffPhase != HandoffPhase.Retiring,
             scale = 1.0 / web.ZoomFactor
         }));
     }
 
-    private void StartDesktop(bool requested)
+    private void StartDesktop(bool requested, bool recheck = false)
     {
-        if (requested)
+        var target = desktopTarget as WindowsDesktopTarget;
+        Rectangle? previousReadyBounds = null;
+        if (recheck && target != null && desktopReady != null &&
+            desktopReady.Status == TaskStatus.RanToCompletion)
         {
-            var target = desktopTarget as WindowsDesktopTarget;
-            if (target != null) target.BeginWaiting();
+            // The welcome animation can outlive the first readiness result. A new
+            // wait must not inherit its already-completed handoff signal.
+            previousReadyBounds = desktopReady.Result;
+            desktopReady = null;
+            handoffReady = new TaskCompletionSource<Rectangle>();
         }
+        if (requested && target != null) target.BeginWaiting(previousReadyBounds.HasValue);
         desktopRequested |= requested;
         if (desktopReady != null)
         {
             if (desktopRequested && desktopFailure != null) ShowDesktopFailure();
             return;
         }
-        desktopReady = preview ? Task.FromResult(Bounds) : desktopTarget.PrepareAsync(lifetime.Token);
+        desktopReady = preview ? Task.FromResult(Bounds) : previousReadyBounds.HasValue
+            ? target.PrepareAsync(lifetime.Token, previousReadyBounds)
+            : desktopTarget.PrepareAsync(lifetime.Token);
         MonitorDesktop();
     }
 
@@ -365,18 +479,19 @@ internal sealed class LauncherWindow : Form
         try
         {
             Rectangle desktopBounds = await desktopReady;
-            if (closing) return;
+            if (closing || animationFailureShown) return;
             if (!preview)
             {
                 if (!userMoved) Bounds = desktopBounds;
                 if (WindowState != FormWindowState.Minimized && IsStartupForeground) { BringToFront(); Activate(); web.Focus(); }
             }
+            handoffReady.TrySetResult(desktopBounds);
             PublishDesktopReady();
         }
         catch (OperationCanceledException) { /* Closing the startup window cancels this wait. */ }
         catch (Exception error)
         {
-            if (closing) return;
+            if (closing || animationFailureShown) return;
             desktopFailure = error;
             if (desktopRequested) ShowDesktopFailure();
         }
@@ -384,23 +499,32 @@ internal sealed class LauncherWindow : Form
 
     private void ShowDesktopFailure()
     {
-        var choice = MessageBox.Show(this, "尚未检测到 Codex 会话输入框。\n\n" + desktopFailure.Message +
-            "\n\n重试：继续等待。取消：退出启动器，直接查看 Codex。", Text,
-            MessageBoxButtons.RetryCancel, MessageBoxIcon.Information);
+        if (closing || desktopFailureShown) return;
+        desktopFailureShown = true;
+        DialogResult choice;
+        try
+        {
+            choice = MessageBox.Show(this, "尚未检测到 Codex 会话输入框。\n\n" + desktopFailure.Message +
+                "\n\n重试：继续等待。取消：退出启动器，直接查看 Codex。", Text,
+                MessageBoxButtons.RetryCancel, MessageBoxIcon.Information);
+        }
+        finally { desktopFailureShown = false; }
+        if (closing) return;
         if (choice == DialogResult.Retry)
         {
             var target = desktopTarget as WindowsDesktopTarget;
             if (target != null) target.BeginWaiting(true);
             desktopReady = null;
             desktopFailure = null;
-            StartDesktop(true);
+            // Leave the current prompt stack before a synchronously failing retry.
+            BeginInvoke(new Action(delegate { if (!closing) StartDesktop(true); }));
         }
         else Close();
     }
 
     private void PublishDesktopReady()
     {
-        if (browserReady && desktopReady != null && desktopReady.Status == TaskStatus.RanToCompletion)
+        if (browserReady && handoffReady.Task.Status == TaskStatus.RanToCompletion)
             web.CoreWebView2.PostWebMessageAsString("desktop-ready");
     }
 
@@ -410,7 +534,8 @@ internal sealed class LauncherWindow : Form
         {
             if (WindowState == FormWindowState.Minimized ||
                 (desktopOwner != IntPtr.Zero && IsIconic(desktopOwner))) return false;
-            if (GetForegroundWindow() == Handle) return true;
+            if (GetForegroundWindow() == Handle || (retirementWindow != null &&
+                retirementWindow.IsHandleCreated && GetForegroundWindow() == retirementWindow.Handle)) return true;
             var target = desktopTarget as WindowsDesktopTarget;
             return target != null && target.IsForeground;
         }
@@ -437,6 +562,7 @@ internal sealed class LauncherWindow : Form
         if (desktopOwner != IntPtr.Zero) AttachDesktopOwner(desktopOwner);
     }
 
+
     protected override void WndProc(ref Message message)
     {
         // Native app-region dragging enters the normal Windows move loop.
@@ -459,6 +585,9 @@ internal sealed class LauncherWindow : Form
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
     [DllImport("dwmapi.dll")] private static extern int DwmFlush();
+    [DllImport("gdi32.dll")] private static extern bool GdiFlush();
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetLayeredWindowAttributes(
+        IntPtr window, uint key, byte alpha, uint flags);
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool ShowWindowAsync(IntPtr window, int command);
@@ -504,6 +633,7 @@ internal sealed class LauncherWindow : Form
         if (disposing)
         {
             if (accountReader != null) accountReader.Dispose();
+            if (retirementWindow != null) retirementWindow.Dispose();
             web.Dispose();
             if (BackgroundImage != null) BackgroundImage.Dispose();
             lifetime.Dispose();

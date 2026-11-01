@@ -1,5 +1,6 @@
 /*
 !/.gitignore
+!/.gitattributes
 !/README.md
 !/LICENSE
 !/app-id.txt
@@ -13,5 +14,7 @@
 **/bin/
 **/obj/
 **/.env*
+**/__pycache__/
+**/*.pyc
 **/*.log
 /web/dsh-startup/openai-original.svg
