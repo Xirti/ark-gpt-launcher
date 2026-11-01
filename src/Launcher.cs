@@ -158,6 +158,7 @@ internal sealed class LauncherWindow : Form
         try
         {
             // Preload immediately; account confirmation has its own independent gate.
+            StartAccount();
             StartDesktop(false);
             // All browser data belongs to this tool; no default browser profile is used.
             var options = new CoreWebView2EnvironmentOptions(
@@ -276,12 +277,7 @@ internal sealed class LauncherWindow : Form
             if (handoffPhase != HandoffPhase.Idle) return;
             if (message == "account-request")
             {
-                if (accountReady == null)
-                {
-                    accountReady = accountReader == null ? Task.FromResult(new AccountInfo { status = "manual" })
-                        : Task.Run(() => accountReader.ReadAsync(lifetime.Token));
-                    MonitorAccount();
-                }
+                StartAccount();
                 return;
             }
             if (message == "desktop-request") { StartDesktop(true); return; }
@@ -596,6 +592,15 @@ internal sealed class LauncherWindow : Form
     [DllImport("kernel32.dll")] private static extern void SetLastError(uint error);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(
         IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+
+    private void StartAccount()
+    {
+        if (accountReady != null) return;
+        CancellationToken cancellation = lifetime.Token;
+        accountReady = accountReader == null ? Task.FromResult(new AccountInfo { status = "manual" })
+            : Task.Run(() => accountReader.ReadAsync(cancellation));
+        MonitorAccount();
+    }
 
     private async void MonitorAccount()
     {

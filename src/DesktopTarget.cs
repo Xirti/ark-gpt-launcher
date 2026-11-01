@@ -22,6 +22,10 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
     private readonly int waitSeconds;
     private readonly bool deferTimeout;
     private Stopwatch waitClock;
+    // A timed-out wait cannot interrupt synchronous UIA. Keep its one worker
+    // owned by the target, so retries cannot accumulate blocked calls.
+    private readonly object probeGate = new object();
+    private Task<bool> inFlightProbe;
     internal Action<IntPtr, Rectangle?> WindowAvailable;
     internal WindowsDesktopTarget(string appId, int waitSeconds = 300, bool deferTimeout = false)
     { this.appId = appId; this.waitSeconds = waitSeconds; this.deferTimeout = deferTimeout; }
@@ -155,20 +159,35 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
                         {
                             if (conversationProbe == null)
                             {
-                                IntPtr candidate = observedWindow;
-                                probeWindow = candidate;
-                                probeVersion = readinessVersion;
-                                // A hung target must not block the launcher's UI thread.
-                                // Keep the responsiveness check in the single bounded
-                                // readiness probe, which starts only after confirmation.
-                                conversationProbe = Task.Run(() => {
-                                    UIntPtr response;
-                                    return SendMessageTimeout(candidate, 0, UIntPtr.Zero, IntPtr.Zero, 2, 150, out response) != IntPtr.Zero &&
-                                        ConversationReadiness.IsReady(candidate);
-                                });
+                                lock (probeGate)
+                                {
+                                    if (inFlightProbe != null && inFlightProbe.IsCompleted)
+                                    {
+                                        Task<bool> previousProbe = inFlightProbe;
+                                        inFlightProbe = null;
+                                        // Observe failures, but never reuse readiness from an old wait.
+                                        previousProbe.GetAwaiter().GetResult();
+                                    }
+                                    if (inFlightProbe == null)
+                                    {
+                                        IntPtr candidate = observedWindow;
+                                        probeWindow = candidate;
+                                        probeVersion = readinessVersion;
+                                        conversationProbe = Task.Run(() => {
+                                            UIntPtr response;
+                                            return SendMessageTimeout(candidate, 0, UIntPtr.Zero, IntPtr.Zero, 2, 150, out response) != IntPtr.Zero &&
+                                                ConversationReadiness.IsReady(candidate);
+                                        });
+                                        inFlightProbe = conversationProbe;
+                                    }
+                                }
                             }
-                            if (conversationProbe.IsCompleted)
+                            if (conversationProbe != null && conversationProbe.IsCompleted)
                             {
+                                lock (probeGate)
+                                {
+                                    if (inFlightProbe == conversationProbe) inFlightProbe = null;
+                                }
                                 bool available = await conversationProbe;
                                 conversationProbe = null;
                                 if (probeVersion == readinessVersion && probeWindow == window)

@@ -1,13 +1,13 @@
-﻿param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '1.1.0')
+﻿param([ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '1.1.2')
 
 $ErrorActionPreference = 'Stop'
 $project = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-& (Join-Path $PSScriptRoot '构建.ps1')
 
 $dist = Join-Path $project 'dist'
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 $zipPath = Join-Path $dist "ArkGPTLauncher-v$Version-win-x64.zip"
 if (Test-Path -LiteralPath $zipPath) { throw "Release already exists: $zipPath" }
+& (Join-Path $PSScriptRoot '构建.ps1')
 $staging = Join-Path $dist ('.package-' + [Guid]::NewGuid().ToString('N'))
 $package = Join-Path $staging 'ArkGPTLauncher'
 New-Item -ItemType Directory -Path $package -Force | Out-Null

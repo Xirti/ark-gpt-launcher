@@ -368,14 +368,14 @@
   function disarmStall() {
     if (stallTimer) { clearTimeout(stallTimer); stallTimer = null }
   }
-  function armStall() {
+  function armStall(expectedMs) {
     disarmStall()
     stallTimer = setTimeout(function () {
       if (finished || stale()) return
       window.__DSH_STARTUP_STALLED__ = true
       try { console.warn('[dsh-startup-screen] 时间线停滞超过 ' + STALL_MS + 'ms，强制揭幕') } catch (e) { /* noop */ }
       finish()
-    }, STALL_MS)
+    }, Math.max(STALL_MS, ms(STALL_MS), expectedMs || 0))
   }
 
   /** 拆掉当前实例：停时间线、清定时器、停语音、解滚动锁、摘根节点。replay 前必须先调它。 */
@@ -789,265 +789,283 @@
     }
 
 
+    // Immutable reference data: allocate once, outside the frame loop.
+    const scanKeys = {
+      radius: [
+        [487, 2000],
+        [492, 1540],
+        [497, 1095],
+        [500, 895.5],
+        [505, 650],
+        [510, 492],
+        [515, 385.5],
+        [520, 320.5],
+        [524, 287.5],
+        [527, 275],
+        [530, 270],
+        [535, 265.5],
+        [540, 262],
+        [545, 258],
+        [550, 255],
+        [555, 252.5],
+        [560, 250],
+        [568, 246],
+      ],
+      whiteRadius: [
+        [487, 1500],
+        [492, 1011],
+        [493, 955],
+        [494, 893],
+        [495, 834],
+        [496, 783],
+        [497, 737],
+        [498, 693.5],
+        [499, 655],
+        [500, 619],
+        [505, 470.5],
+        [510, 374],
+        [515, 310.5],
+        [520, 272],
+        [524, 253.5],
+        [527, 248],
+        [530, 246],
+        [535, 242],
+        [540, 238],
+        [545, 235],
+        [550, 232.5],
+        [555, 230],
+        [560, 227.5],
+        [568, 224],
+      ],
+      outerStart: [
+          [487, 470],
+          [492, 364],
+          [497, 276],
+          [500, 226],
+          [505, 159.75],
+          [510, 98.75],
+          [515, 49.25],
+          [520, 13.25],
+          [524, -9],
+          [527, -23],
+          [530, -36.25],
+          [535, -53],
+          [540, -66.25],
+          [545, -75.75],
+          [550, -82.75],
+          [560, -89],
+          [568, -90],
+        ],
+      outerSweep: [
+          [487, 30],
+          [492, 105],
+          [497, 170],
+          [500, 199],
+          [505, 241.5],
+          [510, 270.25],
+          [515, 295.75],
+          [520, 313.25],
+          [527, 331],
+          [530, 336.75],
+          [535, 344.5],
+          [540, 350.75],
+          [545, 355],
+          [550, 358],
+          [560, 360],
+          [568, 360],
+        ],
+      whiteStart: [
+          [487, -100],
+          [492, -30],
+          [497, 72],
+          [500, 107],
+          [505, 140],
+          [510, 172],
+          [515, 196],
+          [520, 213.75],
+          [527, 234.5],
+          [530, 241],
+          [535, 249.75],
+          [540, 256.75],
+          [545, 262.25],
+          [550, 265.75],
+          [560, 269.5],
+          [568, 270],
+        ],
+      whiteSweep: [
+          [487, 30],
+          [492, 105],
+          [497, 170],
+          [500, 200],
+          [505, 241.25],
+          [510, 272.75],
+          [515, 295.5],
+          [520, 313.75],
+          [527, 330.5],
+          [530, 335.5],
+          [535, 343.5],
+          [540, 349.5],
+          [545, 354],
+          [550, 357],
+          [560, 360],
+          [568, 360],
+        ],
+      innerRadius: [
+        [487, 124.5],
+        [492, 123],
+        [495, 121],
+        [500, 117.5],
+        [505, 112],
+        [510, 107.5],
+        [515, 104],
+        [520, 101.5],
+        [530, 97],
+        [540, 94],
+        [550, 91.5],
+        [560, 90],
+        [568, 88.5],
+      ],
+      innerStart: [
+          [487, -20],
+          [490, -4.25],
+          [492, 14],
+          [495, 48.75],
+          [497, 69.25],
+          [500, 93.25],
+          [505, 121.25],
+          [510, 141],
+          [515, 155.5],
+          [520, 166.5],
+          [527, 178],
+          [530, 181],
+          [535, 187.75],
+          [540, 192],
+          [545, 195.25],
+          [550, 197.75],
+          [555, 199.75],
+          [560, 200.75],
+          [568, 201.5],
+        ],
+      innerSweep: [
+          [487, 0],
+          [492, 22.5],
+          [497, 55.75],
+          [500, 70.25],
+          [505, 87.25],
+          [510, 99],
+          [515, 108],
+          [520, 115],
+          [527, 123.5],
+          [530, 127],
+          [535, 128],
+          [540, 131],
+          [550, 134],
+          [568, 136],
+        ],
+      orbit: [
+          [487, 70],
+          [492, 33],
+          [493, 13.2],
+          [494, -5.8],
+          [495, -24.2],
+          [496, -41.4],
+          [497, -57.2],
+          [498, -71.4],
+          [499, -84.2],
+          [500, -96],
+          [505, -140.8],
+          [510, -172.3],
+          [515, -195.5],
+          [520, -213.5],
+          [527, -234],
+          [530, -238.8],
+          [535, -247.7],
+          [540, -254.7],
+          [545, -260.1],
+          [550, -264],
+          [555, -266.9],
+          [560, -268.8],
+          [568, -270],
+        ],
+      orbitRadius: [
+        [487, 270],
+        [495, 236],
+        [500, 224],
+        [505, 214],
+        [510, 206],
+        [515, 199],
+        [520, 193],
+        [530, 185],
+        [540, 179.5],
+        [550, 174.5],
+        [560, 171.5],
+        [568, 169],
+      ],
+      dotRadius: [
+        [487, 0],
+        [492, 1],
+        [500, 5.6],
+        [510, 7],
+        [520, 7.8],
+        [530, 8],
+        [568, 8],
+      ],
+      blackCap: [
+        [487, 45],
+        [504, 35],
+        [510, 20],
+        [515, 10],
+        [520, 5],
+        [525, 2.5],
+        [535, 2],
+        [550, 0],
+        [568, 0],
+      ],
+      whiteCap: [
+        [487, 40],
+        [492, 30],
+        [497, 22],
+        [502, 16],
+        [507, 10],
+        [512, 5],
+        [520, 1.5],
+        [540, 0],
+        [568, 0],
+      ],
+    };
+
     function scanTrack(frame) {
       const value = (keys) => track(keys, frame);
       const rad = Math.PI / 180;
       return {
-        radius: value([
-          [487, 2000],
-          [492, 1540],
-          [497, 1095],
-          [500, 895.5],
-          [505, 650],
-          [510, 492],
-          [515, 385.5],
-          [520, 320.5],
-          [524, 287.5],
-          [527, 275],
-          [530, 270],
-          [535, 265.5],
-          [540, 262],
-          [545, 258],
-          [550, 255],
-          [555, 252.5],
-          [560, 250],
-          [568, 246],
-        ]),
-        whiteRadius: value([
-          [487, 1500],
-          [492, 1011],
-          [493, 955],
-          [494, 893],
-          [495, 834],
-          [496, 783],
-          [497, 737],
-          [498, 693.5],
-          [499, 655],
-          [500, 619],
-          [505, 470.5],
-          [510, 374],
-          [515, 310.5],
-          [520, 272],
-          [524, 253.5],
-          [527, 248],
-          [530, 246],
-          [535, 242],
-          [540, 238],
-          [545, 235],
-          [550, 232.5],
-          [555, 230],
-          [560, 227.5],
-          [568, 224],
-        ]),
+        radius: value(scanKeys.radius),
+        whiteRadius: value(scanKeys.whiteRadius),
         outerStart:
           rad *
-          value([
-            [487, 470],
-            [492, 364],
-            [497, 276],
-            [500, 226],
-            [505, 159.75],
-            [510, 98.75],
-            [515, 49.25],
-            [520, 13.25],
-            [524, -9],
-            [527, -23],
-            [530, -36.25],
-            [535, -53],
-            [540, -66.25],
-            [545, -75.75],
-            [550, -82.75],
-            [560, -89],
-            [568, -90],
-          ]),
+          value(scanKeys.outerStart),
         outerSweep:
           rad *
-          value([
-            [487, 30],
-            [492, 105],
-            [497, 170],
-            [500, 199],
-            [505, 241.5],
-            [510, 270.25],
-            [515, 295.75],
-            [520, 313.25],
-            [527, 331],
-            [530, 336.75],
-            [535, 344.5],
-            [540, 350.75],
-            [545, 355],
-            [550, 358],
-            [560, 360],
-            [568, 360],
-          ]),
+          value(scanKeys.outerSweep),
         whiteStart:
           rad *
-          value([
-            [487, -100],
-            [492, -30],
-            [497, 72],
-            [500, 107],
-            [505, 140],
-            [510, 172],
-            [515, 196],
-            [520, 213.75],
-            [527, 234.5],
-            [530, 241],
-            [535, 249.75],
-            [540, 256.75],
-            [545, 262.25],
-            [550, 265.75],
-            [560, 269.5],
-            [568, 270],
-          ]),
+          value(scanKeys.whiteStart),
         whiteSweep:
           rad *
-          value([
-            [487, 30],
-            [492, 105],
-            [497, 170],
-            [500, 200],
-            [505, 241.25],
-            [510, 272.75],
-            [515, 295.5],
-            [520, 313.75],
-            [527, 330.5],
-            [530, 335.5],
-            [535, 343.5],
-            [540, 349.5],
-            [545, 354],
-            [550, 357],
-            [560, 360],
-            [568, 360],
-          ]),
-        innerRadius: value([
-          [487, 124.5],
-          [492, 123],
-          [495, 121],
-          [500, 117.5],
-          [505, 112],
-          [510, 107.5],
-          [515, 104],
-          [520, 101.5],
-          [530, 97],
-          [540, 94],
-          [550, 91.5],
-          [560, 90],
-          [568, 88.5],
-        ]),
+          value(scanKeys.whiteSweep),
+        innerRadius: value(scanKeys.innerRadius),
         innerStart:
           rad *
-          value([
-            [487, -20],
-            [490, -4.25],
-            [492, 14],
-            [495, 48.75],
-            [497, 69.25],
-            [500, 93.25],
-            [505, 121.25],
-            [510, 141],
-            [515, 155.5],
-            [520, 166.5],
-            [527, 178],
-            [530, 181],
-            [535, 187.75],
-            [540, 192],
-            [545, 195.25],
-            [550, 197.75],
-            [555, 199.75],
-            [560, 200.75],
-            [568, 201.5],
-          ]),
+          value(scanKeys.innerStart),
         innerSweep:
           rad *
-          value([
-            [487, 0],
-            [492, 22.5],
-            [497, 55.75],
-            [500, 70.25],
-            [505, 87.25],
-            [510, 99],
-            [515, 108],
-            [520, 115],
-            [527, 123.5],
-            [530, 127],
-            [535, 128],
-            [540, 131],
-            [550, 134],
-            [568, 136],
-          ]),
+          value(scanKeys.innerSweep),
         orbit:
           rad *
-          value([
-            [487, 70],
-            [492, 33],
-            [493, 13.2],
-            [494, -5.8],
-            [495, -24.2],
-            [496, -41.4],
-            [497, -57.2],
-            [498, -71.4],
-            [499, -84.2],
-            [500, -96],
-            [505, -140.8],
-            [510, -172.3],
-            [515, -195.5],
-            [520, -213.5],
-            [527, -234],
-            [530, -238.8],
-            [535, -247.7],
-            [540, -254.7],
-            [545, -260.1],
-            [550, -264],
-            [555, -266.9],
-            [560, -268.8],
-            [568, -270],
-          ]),
-        orbitRadius: value([
-          [487, 270],
-          [495, 236],
-          [500, 224],
-          [505, 214],
-          [510, 206],
-          [515, 199],
-          [520, 193],
-          [530, 185],
-          [540, 179.5],
-          [550, 174.5],
-          [560, 171.5],
-          [568, 169],
-        ]),
-        dotRadius: value([
-          [487, 0],
-          [492, 1],
-          [500, 5.6],
-          [510, 7],
-          [520, 7.8],
-          [530, 8],
-          [568, 8],
-        ]),
-        blackCap: value([
-          [487, 45],
-          [504, 35],
-          [510, 20],
-          [515, 10],
-          [520, 5],
-          [525, 2.5],
-          [535, 2],
-          [550, 0],
-          [568, 0],
-        ]),
-        whiteCap: value([
-          [487, 40],
-          [492, 30],
-          [497, 22],
-          [502, 16],
-          [507, 10],
-          [512, 5],
-          [520, 1.5],
-          [540, 0],
-          [568, 0],
-        ]),
+          value(scanKeys.orbit),
+        orbitRadius: value(scanKeys.orbitRadius),
+        dotRadius: value(scanKeys.dotRadius),
+        blackCap: value(scanKeys.blackCap),
+        whiteCap: value(scanKeys.whiteCap),
       };
     }
 
@@ -1317,7 +1335,9 @@
 
   function ms(base) { return Math.round(base / C.speed) }
 
-  function wait(base) {
+  function wait(base) { return waitMilliseconds(ms(base)) }
+
+  function waitMilliseconds(duration) {
     return new Promise(function (resolve) {
       if (skipped) return resolve()
       var done = false
@@ -1328,7 +1348,7 @@
         if (i >= 0) waiters.splice(i, 1)
         resolve()
       }
-      var t = setTimeout(fin, Math.max(0, ms(base)))
+      var t = setTimeout(fin, Math.max(0, duration))
       timers.push(t)
       waiters.push(fin)
     })
@@ -1504,7 +1524,7 @@
     var buffers = {}
     var fetching = {}
     function loadAsset(name) {
-      if (C.sfx === 'synth') return
+      if (!C.sound || C.sfx === 'synth') return
       if (buffers[name] || fetching[name]) return
       fetching[name] = true
       try {
@@ -1539,26 +1559,42 @@
     /** 播素材并等它播完，resolve 实际时长(ms)。拿不到素材 resolve 0。
      *  onended 是唯一正常出口，但音频上下文挂起时它永远不会来 —— 加一道超时兜底，
      *  保证这一步的 Promise 一定会有结果，不会把用户永久锁在黑幕里。 */
-    function playAssetAndWait(name, gain) {
+    var cancelVoice = null
+    function playAssetAndWait(name, gain, playing) {
       return new Promise(function (resolve) {
         var c = ac(true)
         var buf = buffers[name]
         if (!c || !buf) { resolve(0); return }
-        var done = false
-        function fin(ms) {
+        var done = false, timer = null, src = null, g = null, started = false
+        function cancel() { fin(0) }
+        function fin(duration) {
           if (done) return
           done = true
-          resolve(ms)
+          if (timer) clearTimeout(timer)
+          if (src) {
+            src.onended = null
+            if (started) src.stop()
+            src.disconnect()
+          }
+          if (g) g.disconnect()
+          if (cancelVoice === cancel) cancelVoice = null
+          playing(false)
+          resolve(duration)
         }
+        if (cancelVoice) cancelVoice()
+        cancelVoice = cancel
         try {
-          var src = c.createBufferSource()
+          src = c.createBufferSource()
           src.buffer = buf
-          var g = c.createGain()
+          g = c.createGain()
           g.gain.value = Math.min(1, (gain == null ? 0.85 : gain) * clamp01(C.voiceVolume, 0, 1) * 1.6)
           src.connect(g); g.connect(c.destination)
           src.onended = function () { fin(Math.round(buf.duration * 1000)) }
           src.start()
-          setTimeout(function () { fin(Math.round(buf.duration * 1000)) }, buf.duration * 1000 + 1500)
+          started = true
+          playing(true)
+          if (stallTimer) armStall(buf.duration * 1000 + 5000)
+          timer = setTimeout(function () { fin(Math.round(buf.duration * 1000)) }, buf.duration * 1000 + 1500)
         } catch (e) { fin(0) }
       })
     }
@@ -1583,6 +1619,7 @@
       preload: function () { loadAsset('sfx-tick'); loadAsset('sfx-ticks-run') },
       ensureAsset: ensureAsset,
       playAssetAndWait: playAssetAndWait,
+      stopVoice: function () { if (cancelVoice) cancelVoice() },
       /* 文字渐显 / 阶段推进 / 按钮确认 —— 优先用真素材 */
       tick: function () { if (!playAsset('sfx-tick', 0.45)) tone(1760, 0.035, 'square', 0.022) },
       confirm: function () { if (!playAsset('sfx-tick', 0.85)) { tone(660, 0.09, 'triangle', 0.07); tone(990, 0.17, 'triangle', 0.055, 0.085) } },
@@ -1602,6 +1639,8 @@
   })()
 
   var voice = (function () {
+    var generation = 0
+    var pendingSpeech = []
     var supported = typeof window !== 'undefined' && !!window.speechSynthesis &&
       typeof window.SpeechSynthesisUtterance === 'function'
     var voices = []
@@ -1739,16 +1778,15 @@
        *    onend 时按估算兜底，绝不把动画卡死。
        */
       line: function (en, zh, asset) {
+        var currentGeneration = generation
         /* 有真声素材就优先用素材（音色就是你给的那个）；拿不到再回落 TTS */
         if (asset && C.voice && C.voiceSource !== 'tts' && !finished) {
           return audio.ensureAsset(asset).then(function (ok) {
-            if (!ok || finished) return 0
+            if (!ok || finished || skipped || stale() || currentGeneration !== generation) return 0
             if (C.voiceCue !== false) audio.cue()
-            return audio.playAssetAndWait(asset, 0.85).then(function (ms) {
-              if (ms > 0) setMeter(true)
-              return ms
-            })
+            return audio.playAssetAndWait(asset, 0.85, setMeter)
           }).then(function (ms) {
+            if (finished || skipped || stale() || currentGeneration !== generation) return 0
             if (ms > 0) { saidOnce = true; return ms }
             return ttsLine(en, zh)
           })
@@ -1786,13 +1824,19 @@
       },
       listVoices: function () { return voices.slice() },
       /** 只有这里才真的掐断语音（跳过 / 揭幕） */
-      stop: function () { try { if (supported) window.speechSynthesis.cancel() } catch (e) {} setMeter(false) }
+      stop: function () {
+        generation++
+        audio.stopVoice()
+        pendingSpeech.slice().forEach(function (settle) { settle() })
+        try { if (supported) window.speechSynthesis.cancel() } catch (e) { /* Engine unavailable; pending waits already released. */ }
+        setMeter(false)
+      }
     }
 
     /** TTS 合成并等它念完，resolve 实际时长(ms)；拿不到引擎时 resolve 0。 */
     function ttsLine(en, zh) {
       return new Promise(function (resolve) {
-        if (!supported || !C.voice || finished) { resolve(0); return }
+        if (!supported || !C.voice || finished || skipped || stale()) { resolve(0); return }
         pending = { en: en || '', zh: zh || '' }
         var items = []
         var mode = C.voiceLang
@@ -1811,17 +1855,23 @@
         var lead = clamp01(C.voiceLead, 0, 1200)
         var settled = false
         var watchdog = null
+        var leadTimer = null
+        var currentGeneration = generation
 
         function settle() {
           if (settled) return
           settled = true
           if (watchdog) clearTimeout(watchdog)
+          if (leadTimer) clearTimeout(leadTimer)
+          var index = pendingSpeech.indexOf(settle)
+          if (index >= 0) pendingSpeech.splice(index, 1)
           setMeter(false)
           resolve(Math.max(0, Date.now() - startedAt))
         }
 
-        setTimeout(function () {
-          if (finished) { settle(); return }
+        pendingSpeech.push(settle)
+        leadTimer = setTimeout(function () {
+          if (finished || skipped || stale() || currentGeneration !== generation) { settle(); return }
           var last = items.length - 1
           for (var i = 0; i <= last; i++) {
             var u = buildUtter(items[i].t, items[i].l)
@@ -1841,7 +1891,7 @@
   /* 语音/音效接线：声卡要等用户手势才能出声，这里挂一次性解锁 */
   voice.attach(q('.dsu-voice'))
   ;(function preloadVoices() {
-    if (C.voiceSource === 'tts') return
+    if (!C.voice || C.voiceSource === 'tts') return
     for (var i = 0; i < STEPS.length; i++) if (STEPS[i].audio) audio.ensureAsset(STEPS[i].audio)
     audio.ensureAsset('line-6')   /* 终幕欢迎语 */
   })()
@@ -2016,7 +2066,7 @@
            台词短也不会干等。用户点得快时同样等这一句念完，不掐断。 */
         function holdFor(spoken) {
           var target = Math.max(ms(step.hold), (spoken || 0) + ms(240))
-          return wait(Math.max(0, target - (spoken || 0)))
+          return waitMilliseconds(Math.max(0, target - (spoken || 0)))
         }
 
         if (step.action === 'grant' || step.action === 'confirm') {
