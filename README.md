@@ -2,6 +2,10 @@
 
 为 Windows 版 Codex 桌面应用提供启动动画、账户确认和淡出交接。便携运行，无需安装本启动器。
 
+## v1.1.3
+
+启动器使用透明底龙娘图标，ICO 同步放入便携包；就绪稳定判定使用单调计时，避免系统时间调整导致提前通过或延迟。
+
 ## v1.1.2
 
 账户只读查询与 WebView 初始化并行；重试期间最多一个就绪探测在途，旧结果不会直接用于新等待；关闭语音／音效时跳过相应素材预载；圆环关键帧数据只初始化一次。
@@ -53,7 +57,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\src\构建.ps1
 生成核心便携包和 SHA256 校验文件：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\src\发布打包.ps1 -Version 1.1.2
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\发布打包.ps1 -Version 1.1.3
 ```
 
 产物位于 `dist/`。Release 不包含源码、录音备份、测试、历史记录、缓存或本机快捷方式。

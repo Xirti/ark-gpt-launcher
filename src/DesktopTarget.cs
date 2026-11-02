@@ -114,8 +114,9 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
             // any negative probe or window/bounds change restores normal settling.
             bool rechecking = previousReadyBounds.HasValue && window != IntPtr.Zero && window == previousReadyWindow;
             Rectangle lastBounds = rechecking ? previousReadyBounds.Value : Rectangle.Empty;
-            DateTime stableSince = rechecking ? DateTime.UtcNow.AddMilliseconds(-900) : DateTime.UtcNow;
-            DateTime composerSince = rechecking ? stableSince : DateTime.MinValue;
+            var settleClock = Stopwatch.StartNew();
+            long stableSince = rechecking ? -900 : 0;
+            long? composerSince = rechecking ? (long?)stableSince : null;
             IntPtr previousWindow = rechecking ? window : IntPtr.Zero;
             Task<bool> conversationProbe = null;
             IntPtr probeWindow = IntPtr.Zero;
@@ -130,8 +131,8 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
                 if (window != previousWindow)
                 {
                     previousWindow = window;
-                    stableSince = DateTime.UtcNow;
-                    composerSince = DateTime.MinValue;
+                    stableSince = settleClock.ElapsedMilliseconds;
+                    composerSince = null;
                     lastBounds = Rectangle.Empty;
                     readinessVersion++;
                 }
@@ -147,15 +148,15 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
                         if (bounds != lastBounds)
                         {
                             lastBounds = bounds;
-                            stableSince = DateTime.UtcNow;
-                            composerSince = DateTime.MinValue;
+                            stableSince = settleClock.ElapsedMilliseconds;
+                            composerSince = null;
                             readinessVersion++;
                         }
                         // A responsive shell alone is insufficient: wait for the composer too.
                         // Preload warms the app and tracks its owner, but readiness is
                         // evaluated only when the account confirmation requests it.
                         if ((!deferTimeout || waitClock != null) &&
-                            (DateTime.UtcNow - stableSince).TotalMilliseconds >= 900)
+                            settleClock.ElapsedMilliseconds - stableSince >= 900)
                         {
                             if (conversationProbe == null)
                             {
@@ -194,10 +195,10 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
                                 {
                                     if (available)
                                     {
-                                        if (composerSince == DateTime.MinValue) composerSince = DateTime.UtcNow;
-                                        if ((DateTime.UtcNow - composerSince).TotalMilliseconds >= 900) return bounds;
+                                        if (!composerSince.HasValue) composerSince = settleClock.ElapsedMilliseconds;
+                                        if (settleClock.ElapsedMilliseconds - composerSince.Value >= 900) return bounds;
                                     }
-                                    else composerSince = DateTime.MinValue;
+                                    else composerSince = null;
                                 }
                             }
                         }
@@ -206,8 +207,8 @@ internal sealed class WindowsDesktopTarget : IDesktopTarget
                 }
                 if (!usable)
                 {
-                    stableSince = DateTime.UtcNow;
-                    composerSince = DateTime.MinValue;
+                    stableSince = settleClock.ElapsedMilliseconds;
+                    composerSince = null;
                     if (lastBounds != Rectangle.Empty) readinessVersion++;
                     lastBounds = Rectangle.Empty;
                 }
